@@ -66,13 +66,13 @@ A typical optimized request follows this path:
 
 1. Agent builds Anthropic request (model, system, messages, tools)
 
-2. (Optional) Agent calls conduit_deduplicate(messages)
+2. (Optional) Agent calls conduit_dedupe(items)
    └── L2 SemanticDeduplicator removes exact / near-duplicate blocks
 
-3. (Optional) Agent calls conduit_compress(messages)
+3. (Optional) Agent calls conduit_summarize_history(items)
    └── L3 ContextCompressor summarises old turns via Haiku, keeps recent N verbatim
 
-4. Agent calls conduit_wrap_request(request)
+4. Agent calls conduit_optimize_request(request)
    └── L4 CacheOrchestrator.wrapRequest()
        ├── Deep-clone the request (no mutation of original)
        ├── If tools present → inject cache_control on last tool      [breakpoint 1]
@@ -89,7 +89,7 @@ A typical optimized request follows this path:
 7. Agent calls obs.recordRequest(record) with actual token counts
    └── L6 ObservabilityBus writes to SQLite
 
-8. Agent calls conduit_report / conduit_explain to inspect session
+8. Agent calls conduit_cost_report / conduit_explain_request to inspect session
    └── L6 reads aggregated stats from SQLite
 
 9. (Optional) Agent calls conduit_feedback(request_id, rating)
@@ -97,13 +97,13 @@ A typical optimized request follows this path:
 
 --- Agent handoff path ---
 
-A. Outgoing agent calls conduit_handoff(from, to, task, messages)
+A. Outgoing agent calls conduit_handoff_pack(task, messages, [from, to])
    └── L7 AgentHandoffCompressor distils conversation → HandoffContract
        Returns: { contract, system_prompt }
 
 B. Incoming agent loads system_prompt as its system context
 
-C. Incoming agent calls conduit_fetch_handoff(id) to read full contract
+C. Incoming agent calls conduit_handoff_load(id) to read full contract
 ```
 
 ---
@@ -313,7 +313,7 @@ Falls back to a heuristic 200-char preview of the last 6 messages when no API ke
 
 `FeedbackLoop` writes feedback records to the L6 SQLite database (tables `feedback` and `rule_stats`). On every `recordFeedback` call it upserts the rule's win/bad/partial counters. After each upsert it checks: if `evaluations >= 5` and `bad_rate > 40%`, the rule is automatically set to `enabled = 0` with an `auto_disabled_at` timestamp.
 
-`formatRuleReport()` returns a Markdown table consumed directly by `conduit_feedback` and `conduit_rule_stats`.
+`formatRuleReport()` returns a Markdown table consumed directly by `conduit_feedback` and `conduit_optimization_stats`.
 
 ---
 

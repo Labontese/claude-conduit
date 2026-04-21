@@ -30,7 +30,7 @@ If you do not want to use L3 (context compression) or L7 (handoff compression), 
 | Cost reduction | **~70–80%** |
 | Latency overhead | **< 5 ms** |
 
-> ⚠️ **Note:** These are design targets, not yet formally measured. See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for methodology and the results placeholder.
+> **Note:** These are design targets, not yet formally measured. See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for methodology and the results placeholder.
 
 ---
 
@@ -39,7 +39,7 @@ If you do not want to use L3 (context compression) or L7 (handoff compression), 
 ```
 1. You build an Anthropic request (model, system, messages, tools)
           ↓
-2. conduit_wrap_request() injects cache_control breakpoints
+2. conduit_optimize_request() injects cache_control breakpoints
    — last tool, system prompt block, last user message
           ↓
 3. You send the optimized request to Anthropic directly
@@ -50,10 +50,186 @@ conduit does **not** sit in the HTTP path. It transforms request objects in memo
 ## Auto-reporting (0.3.0+)
 
 Every `conduit_*` tool automatically logs its call to the L6 observability
-bus — no need to invoke `conduit_report` manually. The dashboard lights up
+bus — no need to invoke `conduit_cost_report` manually. The dashboard lights up
 from the first tool call, with per-tool latency, token savings, and cost
 estimates. Set `CONDUIT_AGENT_NAME` in `.mcp.json` to label which agent made
 each call.
+
+---
+
+## Tools — organised by what you want to do
+
+Tools are grouped by the task you are trying to accomplish, not by which internal
+layer they live in. Each group has a canonical tool plus (in most cases) a
+backwards-compatible alias from 0.3.0. See the [Migration guide](#migration-from-03x)
+for the full old → new name table.
+
+### Optimise one API call
+
+| Tool | Purpose |
+|---|---|
+| `conduit_optimize_request` | Inject `cache_control` breakpoints before you send a request |
+| `conduit_route_model` | Pick the cheapest capable model for a prompt |
+
+Minimal optimisation — pass just `model` + `messages`, get back a cache-breakpointed request:
+
+```typescript
+const wrapped = await mcp.call("conduit_optimize_request", {
+  model: "claude-sonnet-4-6",
+  messages: [
+    { role: "user",      content: "Review this code." },
+    { role: "assistant", content: "Sure, paste it." },
+    { role: "user",      content: "```ts\n// ...\n```" },
+    { role: "user",      content: "What are the issues?" }
+  ]
+});
+// wrapped.request → ready to send to Anthropic
+// wrapped.meta    → { saved_tokens, saved_usd_estimated, optimizations_applied, ... }
+```
+
+Pick the cheapest capable model before you build the request:
+
+```typescript
+const decision = await mcp.call("conduit_route_model", {
+  prompt: "Summarise the following list of errors into bullet points",
+  policy: "aggressive"
+});
+// decision.model  → "claude-haiku-4-5-20251001"
+// decision.tier   → "haiku"
+// decision.reason → 'simple task keyword: "summarise"'
+```
+
+### Shrink conversation history
+
+| Tool | Purpose |
+|---|---|
+| `conduit_dedupe` | Remove duplicate or near-duplicate items |
+| `conduit_summarize_history` | Summarise old turns via Haiku, keep recent ones verbatim |
+
+Deduplicate a plain list of strings — no message wrapping needed:
+
+```typescript
+const result = await mcp.call("conduit_dedupe", {
+  items: [
+    "Here is the file content: ...",
+    "Now summarise it.",
+    "HERE IS THE FILE CONTENT: ...",   // case-insensitive duplicate
+    "What are the issues?"
+  ]
+});
+// result.items              → 3 items (one duplicate removed)
+// result.stats.blocks_deduplicated → 1
+```
+
+Compress a long history with a preset — no magic numbers:
+
+```typescript
+const result = await mcp.call("conduit_summarize_history", {
+  items: longHistory,       // 40+ turns, also accepts {role, content}[]
+  preset: "balanced"        // or "aggressive" / "light"
+});
+// result.compressed              → true
+// result.stats.compression_ratio → 0.18  (82% reduction)
+```
+
+### Hand off to the next agent
+
+| Tool | Purpose |
+|---|---|
+| `conduit_handoff_pack` | Distil the current conversation into a structured contract |
+| `conduit_handoff_load` | Retrieve a handoff contract by ID |
+
+`from_agent` and `to_agent` are optional metadata — only `task` and `messages` are required:
+
+```typescript
+const handoff = await mcp.call("conduit_handoff_pack", {
+  task:     "Implement the SQLite schema described in the planning session",
+  messages: planningHistory,        // also accepts string[]
+  from_agent: "PlannerAgent",       // optional
+  to_agent:   "CoderAgent"          // optional
+});
+// handoff.contract.id     → "3f2a1b0c-..."  (pass to conduit_handoff_load)
+// handoff.system_prompt   → ready-to-use system prompt for the receiving agent
+
+// Later, in the receiving agent:
+const contract = await mcp.call("conduit_handoff_load", {
+  handoff_id: "3f2a1b0c-..."
+});
+```
+
+### Measure and explain
+
+| Tool | Purpose |
+|---|---|
+| `conduit_cost_report` | Session token + cost report (markdown or JSON) |
+| `conduit_explain_request` | One-paragraph plain-English session summary |
+| `conduit_optimization_stats` | View which optimisation rules are helping or hurting |
+| `conduit_feedback` | Rate a request's quality — feeds the auto-disable loop |
+
+```typescript
+// Token and cost breakdown for the current session
+const report = await mcp.call("conduit_cost_report", { format: "markdown" });
+
+// Plain-English recap for logs
+const summary = await mcp.call("conduit_explain_request", {});
+
+// Mark a request as bad — used to auto-disable underperforming rules
+await mcp.call("conduit_feedback", {
+  request_id:     "req_abc123",
+  rating:         "bad",
+  rule_suspected: "cache_messages",
+  notes:          "Model ignored cached history and repeated earlier reasoning"
+});
+
+// See which rules are active or auto-disabled
+const stats = await mcp.call("conduit_optimization_stats", {});
+```
+
+### Experiment (A/B)
+
+| Tool | Purpose |
+|---|---|
+| `conduit_ab_create` | Define an experiment with two or more instruction variants |
+| `conduit_ab_get_variant` | Get the sticky variant for a session |
+| `conduit_ab_list` | List all experiments |
+
+```typescript
+const exp = await mcp.call("conduit_ab_create", {
+  name: "cache-tone-test",
+  variants: [
+    { name: "control",   instruction: "Be concise." },
+    { name: "treatment", instruction: "Be concise. Think step by step before answering." }
+  ]
+});
+
+const assignment = await mcp.call("conduit_ab_get_variant", {
+  session_id:      "sess_xyz",
+  experiment_name: "cache-tone-test"
+});
+// assignment.variant_name → "treatment"
+// assignment.instruction  → "Be concise. Think step by step before answering."
+```
+
+### Advanced / infrastructure
+
+| Tool | Purpose |
+|---|---|
+| `conduit_search_tools` | Find registered tools by keyword — no schemas loaded |
+| `conduit_describe_tool` | Get the full schema for a specific tool |
+| `conduit_call_tool` | Execute a registered tool by name |
+
+These are the L1 lazy-loading tools. Most agents never need to call them directly —
+conduit registers application tools through this registry so schemas are only
+loaded when a tool is actually used.
+
+```typescript
+const tools = await mcp.call("conduit_search_tools", { query: "file", max_results: 3 });
+const schema = await mcp.call("conduit_describe_tool", { name: "list_files" });
+const result = await mcp.call("conduit_call_tool", {
+  name: "list_files",
+  args: { path: "./src" }
+});
+```
 
 ---
 
@@ -194,54 +370,6 @@ To pin a custom database path:
 
 ---
 
-## Usage
-
-<!-- Optimize a request and inspect savings -->
-```typescript
-const result = await conduit_wrap_request({
-  request: {
-    model: "claude-sonnet-4-6",
-    system: "You are a helpful assistant...",
-    messages: [...],
-    tools: [...]
-  }
-});
-
-// result.request → optimized request with cache_control breakpoints
-// result.meta    → { saved_tokens, saved_usd_estimated, optimizations_applied, ... }
-
-// Check session stats
-await conduit_report();
-
-// Search available tools without loading schemas
-await conduit_search_tools({ query: "file" });
-```
-
----
-
-## Tools
-
-| Tool | Purpose | When to use |
-|---|---|---|
-| `conduit_wrap_request` | 🔧 Inject cache breakpoints | Before every Anthropic API call in a long-running agent |
-| `conduit_search_tools` | 🔍 Find tools by intent | Before calling a tool you are unsure of |
-| `conduit_describe_tool` | 📋 Get full schema for one tool | Before executing an unfamiliar tool |
-| `conduit_execute_tool` | ▶️ Run a registered tool | When you know the exact tool name and args |
-| `conduit_report` | 📊 Session cost and token report | After a batch of requests, or on a schedule |
-| `conduit_explain` | 💬 Human-readable session summary | Quick status check, end-of-session logging |
-| `conduit_deduplicate` | 🧹 Remove duplicate messages | Before sending long conversations with repeated content |
-| `conduit_compress` | 🗜️ Summarize old conversation turns | When context exceeds your token budget |
-| `conduit_handoff` | 🤝 Create agent handoff contract | When handing off work between agents |
-| `conduit_fetch_handoff` | 📥 Retrieve a handoff contract | On agent startup, when receiving a handoff |
-| `conduit_feedback` | ⭐ Rate a request's quality | After observing a good or bad optimization outcome |
-| `conduit_rule_stats` | 📈 View optimization rule health | To track which rules help or hurt |
-| `conduit_route_model` | 🧭 Pick cheapest capable model | Before every Anthropic API call to minimize cost |
-| `conduit_ab_create` | 🧪 Create an A/B experiment | When testing two instruction variants |
-| `conduit_ab_assign` | 🎲 Assign a session to a variant | At the start of a session in an active experiment |
-| `conduit_ab_list` | 📋 List all experiments | To inspect active and past experiments |
-
----
-
 ## Architecture
 
 Eight layers across Phases 1–4:
@@ -282,10 +410,66 @@ claude-conduit requires Node.js 20 or newer. Upgrade via `nvm install 20` (macOS
 
 | Page | Description |
 |---|---|
-| [Getting Started](docs/GETTING-STARTED.md) | Installation, configuration, first optimization |
-| [Tools Reference](docs/TOOLS.md) | All six tools — inputs, outputs, and examples |
+| [Getting Started](docs/GETTING-STARTED.md) | Installation, configuration, first optimisation |
+| [Tools Reference](docs/TOOLS.md) | All tools — inputs, outputs, and examples |
 | [Architecture](docs/ARCHITECTURE.md) | Layer design, request flow, SQLite schema |
 | [Benchmarks](docs/BENCHMARKS.md) | Design targets, methodology, results placeholder |
+
+---
+
+## Migration from 0.3.x
+
+Version 0.4.0 renamed ten tools to match user mental models rather than internal
+layer structure. Old names still work — they are registered as deprecated aliases
+that point to the new handlers. Deprecated aliases will be removed in 1.0.
+
+| Old name (0.3.x, still works) | New canonical name (0.4.0) |
+|---|---|
+| `conduit_wrap_request` | `conduit_optimize_request` |
+| `conduit_execute_tool` | `conduit_call_tool` |
+| `conduit_rule_stats` | `conduit_optimization_stats` |
+| `conduit_ab_assign` | `conduit_ab_get_variant` |
+| `conduit_compress` | `conduit_summarize_history` |
+| `conduit_deduplicate` | `conduit_dedupe` |
+| `conduit_handoff` | `conduit_handoff_pack` |
+| `conduit_fetch_handoff` | `conduit_handoff_load` |
+| `conduit_report` | `conduit_cost_report` |
+| `conduit_explain` | `conduit_explain_request` |
+
+### Behaviour change — `conduit_deduplicate`
+
+`conduit_deduplicate` is still accepted as an alias, but in 0.4.0 it now shares
+its handler with `conduit_dedupe` — which means its defaults changed:
+
+- **Case-insensitive by default.** `"Hello"` and `"HELLO"` are now treated as
+  duplicates. Pass `case_sensitive: true` to restore the 0.3.x behaviour.
+- **Duplicates are removed by default.** The output no longer contains
+  `[duplicate of: hash]` markers — duplicates are dropped from the list. Pass
+  `return: "annotated"` to restore the 0.3.x behaviour.
+
+If you relied on the old behaviour, either pin those two parameters or migrate
+to `conduit_dedupe` explicitly so the intent is clear.
+
+### String-friendly inputs
+
+`conduit_dedupe`, `conduit_summarize_history`, and `conduit_handoff_pack` now
+accept `items: string[]` in addition to the legacy `{role, content}[]` form.
+Strings are wrapped internally as `{role: "user", content: str}`. The legacy
+`messages` parameter is still accepted on the first two for backwards
+compatibility.
+
+### Compression presets
+
+`conduit_summarize_history` accepts `preset: "aggressive" | "balanced" | "light"`
+so you no longer need to set `trigger_tokens` and `keep_recent_turns` by hand.
+`"balanced"` matches the 0.3.x defaults. Explicit values still override the
+preset.
+
+### Minimal `conduit_optimize_request`
+
+`conduit_optimize_request` accepts `{model, messages}` in addition to the full
+Anthropic Messages request object. The minimal form wraps the pair into a full
+request, then applies cache breakpoints.
 
 ---
 
