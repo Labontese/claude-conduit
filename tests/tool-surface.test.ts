@@ -129,11 +129,6 @@ describe('tool-surface — backwards-compatible aliases', () => {
     });
 
     it(`alias ${alias} shares handler with ${canonical}`, () => {
-      // Undantag: conduit_deduplicate behåller 0.3.0-semantik och har
-      // därför en egen handler, skild från conduit_dedupe som har nya
-      // defaults (case-insensitive, return=clean). Se tool-definitions.ts
-      // för motivering. Alla andra alias delar handler med canonical.
-      if (alias === 'conduit_deduplicate') return;
       const aliasEntry = byName(entries, alias);
       const canonicalEntry = byName(entries, canonical);
       expect(aliasEntry!.handler).toBe(canonicalEntry!.handler);

@@ -30,6 +30,17 @@ Dates are ISO 8601 (YYYY-MM-DD).
   Deprecated aliases will be removed in the next major version. Migrate
   at your convenience.
 
+  **Behaviour note for `conduit_deduplicate` → `conduit_dedupe`:** unlike
+  the other nine aliases (which are pure renames sharing a handler with
+  their canonical), calling the deprecated `conduit_deduplicate` now
+  routes to the new `conduit_dedupe` handler, which has different
+  defaults: **case-insensitive** (was case-sensitive) and
+  **`return: "clean"`** removes duplicates entirely (was annotated-only).
+  To preserve 0.3.0 semantics, pass `case_sensitive: true` and
+  `return: "annotated"` explicitly. Verified no callers of the old name
+  exist in the conduit repo or Team Daniel; package is one day old on
+  npm. Alias-consistency was chosen over strict behavioural BC.
+
 - **UX: String-friendly inputs.** `conduit_dedupe` and
   `conduit_summarize_history` now accept `items: string[]` as well as the
   legacy `{role, content}[]` form. Strings are wrapped internally with

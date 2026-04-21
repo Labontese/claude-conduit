@@ -68,35 +68,17 @@ describe('aliases — identical output between deprecated name and canonical', (
 
   afterEach(() => obs.close());
 
-  it('conduit_deduplicate preserves 0.3.0 behaviour (annotated, case-sensitive)', async () => {
-    // Nova 2026-04-21: `conduit_deduplicate` behålls som separat handler
-    // med 0.3.0-semantik. Jämförs INTE med `conduit_dedupe` eftersom
-    // nya tool-et har andra defaults (case-insensitive, return=clean).
+  it('conduit_deduplicate == conduit_dedupe (unified handler, 2026-04-21)', async () => {
+    // Nova 2026-04-21 (rev. efter Daniels godkännande): `conduit_deduplicate`
+    // är nu en ren alias som delar handler med `conduit_dedupe` — samma
+    // pattern som övriga 9 aliaser. Beteende-ändring dokumenterad i
+    // CHANGELOG 0.4.0 (case-insensitive default, return=clean default).
     const input = {
-      messages: [
-        { role: 'user' as const, content: 'hello' },
-        { role: 'user' as const, content: 'hello' },
-      ],
+      items: ['hello', 'hello', 'world'],
     };
-    const result = await handlerOf(entries, 'conduit_deduplicate')(input);
-    const parsed = JSON.parse(textOf(result));
-    // 0.3.0-shape: `messages` array, duplicates retained as [duplicate of: ...]
-    expect(parsed.messages).toHaveLength(2);
-    expect(parsed.messages[1].content).toContain('duplicate of');
-    expect(parsed.stats.blocks_deduplicated).toBe(1);
-  });
-
-  it('conduit_deduplicate is case-sensitive (0.3.0 behaviour preserved)', async () => {
-    const input = {
-      messages: [
-        { role: 'user' as const, content: 'Hello' },
-        { role: 'user' as const, content: 'HELLO' },
-      ],
-    };
-    const result = await handlerOf(entries, 'conduit_deduplicate')(input);
-    const parsed = JSON.parse(textOf(result));
-    // Case-sensitive → Hello and HELLO treated as distinct
-    expect(parsed.stats.blocks_deduplicated).toBe(0);
+    const a = await handlerOf(entries, 'conduit_deduplicate')(input);
+    const b = await handlerOf(entries, 'conduit_dedupe')(input);
+    expect(textOf(a)).toBe(textOf(b));
   });
 
   it('conduit_compress == conduit_summarize_history', async () => {

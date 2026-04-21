@@ -330,101 +330,65 @@ export function buildToolSurface(deps: ConduitDeps): ToolSurfaceEntry[] {
   );
 
   // -------------------------------------------------------------------------
-  // L2 — Deduplication
+  // L2 — Deduplication: conduit_deduplicate → conduit_dedupe
+  // Ny input: items (string[] | {role,content}[]), case_sensitive, return
   //
-  // Tricky BC-situation: nya canonical `conduit_dedupe` ändrar defaults
-  // (case-insensitive, return="clean"). Om vi aliasar gamla
-  // `conduit_deduplicate` rakt till samma handler ändras tyst
-  // beteendet för existerande anropare. Lösning: båda tools registreras
-  // som separata canonical entries — `conduit_deduplicate` behåller
-  // gamla `deduplicateMessages`-semantiken (annotated output,
-  // case-sensitive), medan `conduit_dedupe` använder nya
-  // `deduplicateItems`. `conduit_deduplicate` markeras deprecated i
-  // description-texten ändå, så man vet att den planeras tas bort.
+  // Nota bene (Nova 2026-04-21, rev. efter Daniels godkännande): tidigare
+  // version behöll `conduit_deduplicate` som separat handler för strict
+  // BC. Daniel verifierade att ingen kod i Team Daniel eller conduit-
+  // repot använder det gamla namnet, och att paketet är 1 dag gammalt
+  // på npm. Alias-konsistens > strict BC. `conduit_deduplicate` delar
+  // nu handler med `conduit_dedupe` — vilket innebär beteendeändring:
+  // case-insensitive default och return=clean default.
   // -------------------------------------------------------------------------
 
   entries.push(
-    ...group({
-      name: 'conduit_dedupe',
-      description:
-        'Remove duplicate or near-duplicate items from a list. Accepts strings or {role, content} objects. Case-insensitive by default. Returns deduplicated items + stats.',
-      schema: {
-        items: messageItemsSchema.optional().describe('Items to deduplicate (preferred input)'),
-        messages: z
-          .array(messageObjectSchema)
-          .optional()
-          .describe('Legacy alias for `items` (kept for backwards compatibility)'),
-        threshold: z
-          .number()
-          .min(0)
-          .max(1)
-          .optional()
-          .describe('Similarity threshold 0-1 (default 0.97)'),
-        case_sensitive: z
-          .boolean()
-          .optional()
-          .describe('Exact-match mode (default false — lowercases + trims before hashing)'),
-        return: z
-          .enum(['clean', 'annotated'])
-          .optional()
-          .describe('"clean" (default) removes duplicates; "annotated" keeps them with [duplicate of: hash] markers'),
+    ...group(
+      {
+        name: 'conduit_dedupe',
+        description:
+          'Remove duplicate or near-duplicate items from a list. Accepts strings or {role, content} objects. Case-insensitive by default. Returns deduplicated items + stats.',
+        schema: {
+          items: messageItemsSchema.optional().describe('Items to deduplicate (preferred input)'),
+          messages: z
+            .array(messageObjectSchema)
+            .optional()
+            .describe('Legacy alias for `items` (kept for backwards compatibility)'),
+          threshold: z
+            .number()
+            .min(0)
+            .max(1)
+            .optional()
+            .describe('Similarity threshold 0-1 (default 0.97)'),
+          case_sensitive: z
+            .boolean()
+            .optional()
+            .describe('Exact-match mode (default false — lowercases + trims before hashing)'),
+          return: z
+            .enum(['clean', 'annotated'])
+            .optional()
+            .describe('"clean" (default) removes duplicates; "annotated" keeps them with [duplicate of: hash] markers'),
+        },
+        handler: withReporting('conduit_dedupe', obs, sessionId, async (args: Record<string, unknown>) => {
+          const { items, messages, threshold, case_sensitive, return: returnMode } = args as {
+            items?: MessageInput[];
+            messages?: Array<{ role: 'user' | 'assistant'; content: string }>;
+            threshold?: number;
+            case_sensitive?: boolean;
+            return?: 'clean' | 'annotated';
+          };
+          const source: ReadonlyArray<MessageInput> = items ?? messages ?? [];
+          const result = deduplicator.deduplicateItems(source, {
+            threshold,
+            case_sensitive,
+            return: returnMode,
+          });
+          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        }) as McpHandler,
       },
-      handler: withReporting('conduit_dedupe', obs, sessionId, async (args: Record<string, unknown>) => {
-        const { items, messages, threshold, case_sensitive, return: returnMode } = args as {
-          items?: MessageInput[];
-          messages?: Array<{ role: 'user' | 'assistant'; content: string }>;
-          threshold?: number;
-          case_sensitive?: boolean;
-          return?: 'clean' | 'annotated';
-        };
-        const source: ReadonlyArray<MessageInput> = items ?? messages ?? [];
-        const result = deduplicator.deduplicateItems(source, {
-          threshold,
-          case_sensitive,
-          return: returnMode,
-        });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-      }) as McpHandler,
-    }),
+      [{ name: 'conduit_deduplicate' }],
+    ),
   );
-
-  // Kvarlevande deprecated — bevarar 0.3.0-beteende (annotated output,
-  // case-sensitive, `messages` required). Pekar NOT på samma handler som
-  // `conduit_dedupe` — detta är ett medvetet brott mot alias-mönstret
-  // för att skydda befintliga anropare från tyst beteende-ändring.
-  const deduplicateLegacyHandler = withReporting(
-    'conduit_deduplicate',
-    obs,
-    sessionId,
-    async (args: Record<string, unknown>) => {
-      const { messages, threshold } = args as {
-        messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-        threshold?: number;
-      };
-      const result = deduplicator.deduplicateMessages(messages, threshold ?? 0.97);
-      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-    },
-  ) as McpHandler;
-
-  entries.push({
-    name: 'conduit_deduplicate',
-    description:
-      '[DEPRECATED — use conduit_dedupe] Remove duplicate or near-duplicate messages from a conversation. Returns deduplicated messages + stats. Behaviour preserved from 0.3.0: annotated output, case-sensitive. Will be removed in 1.0.',
-    deprecated: true,
-    canonical: 'conduit_dedupe',
-    schema: {
-      messages: z
-        .array(messageObjectSchema)
-        .describe('Conversation messages to deduplicate'),
-      threshold: z
-        .number()
-        .min(0)
-        .max(1)
-        .optional()
-        .describe('Similarity threshold 0-1 (default 0.97)'),
-    },
-    handler: deduplicateLegacyHandler,
-  });
 
   // -------------------------------------------------------------------------
   // L3 — Compression: conduit_compress → conduit_summarize_history
