@@ -4,10 +4,12 @@
   "description": "Token- and agent-optimization MCP server for Claude",
   "type": "module",
   "main": "dist/index.js",
+  "license": "MIT",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "dev": "node --watch dist/index.js",
+    "dashboard": "node dist/dashboard-server.js",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
@@ -22,6 +24,7 @@
     "vitest": "^3.1.2"
   },
   "bin": {
-    "claude-conduit": "./dist/index.js"
+    "claude-conduit": "./dist/index.js",
+    "conduit-dashboard": "./dist/dashboard-server.js"
   }
 }

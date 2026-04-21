@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>claude-conduit dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f11;
+      --surface: #18181b;
+      --border: #27272a;
+      --text: #fafafa;
+      --muted: #71717a;
+      --accent: #d97706;
+      --green: #22c55e;
+      --red: #ef4444;
+      --blue: #3b82f6;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    header {
+      padding: 20px 32px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    header .badge {
+      font-size: 11px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 2px 8px;
+      border-radius: 999px;
+      color: var(--muted);
+    }
+
+    .refresh-btn {
+      margin-left: auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .refresh-btn:hover { background: var(--border); }
+
+    main { padding: 28px 32px; max-width: 1100px; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+    }
+
+    .card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+    .card .value { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; }
+    .card .sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .card .value.green { color: var(--green); }
+    .card .value.amber { color: var(--accent); }
+    .card .value.blue { color: var(--blue); }
+
+    h2 { font-size: 15px; font-weight: 600; margin-bottom: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+    section { margin-bottom: 32px; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 1px solid var(--border); }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; font-family: 'SF Mono', 'Fira Code', monospace; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface); }
+
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .pill.active { background: #14532d; color: var(--green); }
+    .pill.disabled { background: #450a0a; color: var(--red); }
+
+    #empty { color: var(--muted); text-align: center; padding: 32px; }
+  </style>
+</head>
+<body>
+  <header>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+    <h1>claude-conduit</h1>
+    <span class="badge">dashboard</span>
+    <button class="refresh-btn" onclick="load()">↻ Refresh</button>
+  </header>
+
+  <main>
+    <div class="grid" id="metrics"></div>
+
+    <section>
+      <h2>Recent requests</h2>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th><th>Agent</th><th>Model</th>
+              <th>Input tokens</th><th>Cache read</th><th>Saved</th><th>Cost</th>
+            </tr>
+          </thead>
+          <tbody id="requests-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>Rule stats</h2>
+      <div class="card">
+        <table>
+          <thead>
+            <tr><th>Rule</th><th>Evals</th><th>Good</th><th>Bad</th><th>Win rate</th><th>Status</th></tr>
+          </thead>
+          <tbody id="rules-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const fmt = (n) => n == null ? '—' : Number(n).toLocaleString();
+    const pct = (n) => n == null ? '—' : (n * 100).toFixed(1) + '%';
+    const usd = (n) => n == null ? '—' : '$' + Number(n).toFixed(4);
+    const time = (ts) => ts ? new Date(ts).toLocaleTimeString() : '—';
+
+    async function load() {
+      try {
+        const [summary, recent, rules] = await Promise.all([
+          fetch('/api/summary').then(r => r.json()),
+          fetch('/api/recent').then(r => r.json()),
+          fetch('/api/rules').then(r => r.json()),
+        ]);
+
+        const { sessions, requests, cacheHitRate, savings } = summary;
+
+        document.getElementById('metrics').innerHTML = `
+          <div class="card"><div class="label">Sessions</div><div class="value blue">${fmt(sessions)}</div></div>
+          <div class="card"><div class="label">Requests</div><div class="value">${fmt(requests.count)}</div></div>
+          <div class="card"><div class="label">Cache hit rate</div><div class="value green">${pct(cacheHitRate)}</div><div class="sub">target: 74%</div></div>
+          <div class="card"><div class="label">Tokens saved</div><div class="value amber">${fmt(requests.saved_tokens)}</div></div>
+          <div class="card"><div class="label">Cost saved</div><div class="value green">${savings.toFixed(1)}%</div><div class="sub">vs baseline</div></div>
+          <div class="card"><div class="label">Total cost</div><div class="value">${usd(requests.cost_usd)}</div></div>
+        `;
+
+        const tbody = document.getElementById('requests-body');
+        if (!recent.length) {
+          tbody.innerHTML = '<tr><td colspan="7" id="empty">No requests recorded yet</td></tr>';
+        } else {
+          tbody.innerHTML = recent.map(r => `
+            <tr>
+              <td>${time(r.ts)}</td>
+              <td>${r.agent_name ?? '—'}</td>
+              <td>${(r.model ?? '').replace('claude-', '')}</td>
+              <td>${fmt(r.input_tokens)}</td>
+              <td>${fmt(r.cache_read_tokens)}</td>
+              <td>${fmt(r.saved_tokens)}</td>
+              <td>${usd(r.cost_usd)}</td>
+            </tr>`).join('');
+        }
+
+        const rbody = document.getElementById('rules-body');
+        if (!rules.length) {
+          rbody.innerHTML = '<tr><td colspan="6" id="empty">No feedback recorded yet</td></tr>';
+        } else {
+          rbody.innerHTML = rules.map(r => {
+            const winRate = r.evaluations > 0 ? (r.wins_good / r.evaluations * 100).toFixed(0) + '%' : '—';
+            const status = r.enabled
+              ? '<span class="pill active">Active</span>'
+              : '<span class="pill disabled">Disabled</span>';
+            return `<tr>
+              <td>${r.rule_name}</td>
+              <td>${r.evaluations}</td>
+              <td>${r.wins_good}</td>
+              <td>${r.wins_bad}</td>
+              <td>${winRate}</td>
+              <td>${status}</td>
+            </tr>`;
+          }).join('');
+        }
+      } catch (e) {
+        console.error('Failed to load:', e);
+      }
+    }
+
+    load();
+    setInterval(load, 10000);
+  </script>
+</body>
+</html>
