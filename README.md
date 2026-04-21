@@ -1,4 +1,4 @@
-# claude-conduit
+<img src="banner.svg" alt="claude-conduit" width="100%"/>
 
 > Token and agent optimization MCP server for Claude — cut input tokens by up to 85%, boost cache hit rates, and get per-session cost reports. Automatically.
 
