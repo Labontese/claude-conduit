@@ -1,9 +1,16 @@
 {
-  "name": "@teamdaniel/claude-conduit",
-  "version": "0.1.0",
+  "name": "@patchwindow/claude-conduit",
+  "version": "0.1.2",
   "description": "Token- and agent-optimization MCP server for Claude",
   "type": "module",
   "main": "dist/index.js",
+  "files": [
+    "dist",
+    "dashboard",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
   "license": "MIT",
   "scripts": {
     "build": "tsc",
@@ -24,7 +31,7 @@
     "vitest": "^3.1.2"
   },
   "bin": {
-    "claude-conduit": "./dist/index.js",
-    "conduit-dashboard": "./dist/dashboard-server.js"
+    "claude-conduit": "dist/index.js",
+    "conduit-dashboard": "dist/dashboard-server.js"
   }
 }

@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
