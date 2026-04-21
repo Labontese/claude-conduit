@@ -7,28 +7,49 @@
 ## System overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  MCP Client (Claude Code, agent, script)                    │
-└────────────────────────┬────────────────────────────────────┘
-                         │  MCP tool calls (stdio)
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  claude-conduit (MCP server)                                │
-│                                                             │
-│  ┌─────────────────┐  ┌───────────────────┐  ┌──────────┐  │
-│  │  L1              │  │  L4               │  │  L6      │  │
-│  │  Lazy Tool       │  │  Cache            │  │  Observ- │  │
-│  │  Registry        │  │  Orchestrator     │  │  ability │  │
-│  │                  │  │                   │  │  Bus     │  │
-│  │  search, describe│  │  wrapRequest()    │  │  SQLite  │  │
-│  │  execute         │  │  cache_control    │  │  reports │  │
-│  └─────────────────┘  └───────────────────┘  └──────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                         │  optimized request returned to client
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Client sends request to Anthropic API                      │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│  MCP Client (Claude Code, agent, script)                            │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │  MCP tool calls (stdio)
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  claude-conduit (MCP server)                                        │
+│                                                                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+│  │  L1           │  │  L2           │  │  L3           │             │
+│  │  Lazy Tool    │  │  Semantic     │  │  Context      │             │
+│  │  Registry     │  │  Deduplicator │  │  Compressor   │             │
+│  │               │  │               │  │               │             │
+│  │  search       │  │  exact hash   │  │  Haiku summ.  │             │
+│  │  describe     │  │  MinHash sim. │  │  keep recent  │             │
+│  │  execute      │  │               │  │  turns        │             │
+│  └──────────────┘  └──────────────┘  └──────────────┘              │
+│                                                                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+│  │  L4           │  │  L5           │  │  L6           │             │
+│  │  Cache        │  │  Model Router │  │  Observ-      │             │
+│  │  Orchestrator │  │  + A/B Tests  │  │  ability Bus  │             │
+│  │               │  │               │  │               │             │
+│  │  wrapRequest  │  │  route_model  │  │  SQLite       │             │
+│  │  cache_control│  │  ab_create    │  │  reports      │             │
+│  │               │  │  ab_assign    │  │  feedback     │             │
+│  └──────────────┘  └──────────────┘  └──────────────┘              │
+│                                                                     │
+│  ┌──────────────┐  ┌──────────────┐                                 │
+│  │  L7           │  │  L8           │                                │
+│  │  Agent        │  │  Feedback     │                                │
+│  │  Handoff      │  │  Loop         │                                │
+│  │               │  │               │                                │
+│  │  compress     │  │  recordFdbk   │                                │
+│  │  fetch        │  │  rule stats   │                                │
+│  │  system_prompt│  │  auto-disable │                                │
+│  └──────────────┘  └──────────────┘                                 │
+└─────────────────────────────────────────────────────────────────────┘
+                             │  optimized request returned to client
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Client sends request to Anthropic API                              │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 > ⚠️ **Note:** conduit does **not** sit in the HTTP path. It transforms request objects in memory and returns them. The client is responsible for the actual API call.
@@ -40,9 +61,18 @@
 A typical optimized request follows this path:
 
 ```
+0. (Optional) Agent calls conduit_route_model(prompt)
+   └── L5 ModelRouter returns cheapest capable model ID
+
 1. Agent builds Anthropic request (model, system, messages, tools)
 
-2. Agent calls conduit_wrap_request(request)
+2. (Optional) Agent calls conduit_deduplicate(messages)
+   └── L2 SemanticDeduplicator removes exact / near-duplicate blocks
+
+3. (Optional) Agent calls conduit_compress(messages)
+   └── L3 ContextCompressor summarises old turns via Haiku, keeps recent N verbatim
+
+4. Agent calls conduit_wrap_request(request)
    └── L4 CacheOrchestrator.wrapRequest()
        ├── Deep-clone the request (no mutation of original)
        ├── If tools present → inject cache_control on last tool      [breakpoint 1]
@@ -52,15 +82,28 @@ A typical optimized request follows this path:
        ├── Estimate token counts (before / after)
        └── Return { request: optimized, meta: CacheMeta }
 
-3. Agent sends optimized request to Anthropic API
+5. Agent sends optimized request to Anthropic API
 
-4. Anthropic responds with usage.cache_read_input_tokens etc.
+6. Anthropic responds with usage.cache_read_input_tokens etc.
 
-5. Agent calls obs.recordRequest(record) with actual token counts
+7. Agent calls obs.recordRequest(record) with actual token counts
    └── L6 ObservabilityBus writes to SQLite
 
-6. Agent calls conduit_report / conduit_explain to inspect session
+8. Agent calls conduit_report / conduit_explain to inspect session
    └── L6 reads aggregated stats from SQLite
+
+9. (Optional) Agent calls conduit_feedback(request_id, rating)
+   └── L8 FeedbackLoop records rating; auto-disables bad rules
+
+--- Agent handoff path ---
+
+A. Outgoing agent calls conduit_handoff(from, to, task, messages)
+   └── L7 AgentHandoffCompressor distils conversation → HandoffContract
+       Returns: { contract, system_prompt }
+
+B. Incoming agent loads system_prompt as its system context
+
+C. Incoming agent calls conduit_fetch_handoff(id) to read full contract
 ```
 
 ---
@@ -197,28 +240,80 @@ CREATE INDEX idx_requests_ts      ON requests(ts);
 
 ## Layer numbering
 
-The layers are numbered with gaps intentionally — Phase 1 ships L1, L4, and L6. The gaps are reserved for Phase 2.
-
 | Layer | Status | Description |
 |---|---|---|
 | **L1** | ✅ Shipped | Lazy Tool Registry |
-| L2 | 🔜 Phase 2 | Semantic deduplication |
-| L3 | 🔜 Phase 2 | Context compression |
+| **L2** | ✅ Shipped | Semantic Deduplicator |
+| **L3** | ✅ Shipped | Context Compressor |
 | **L4** | ✅ Shipped | Cache Orchestrator |
-| L5 | 🔜 Phase 2 | Model router |
+| **L5** | ✅ Shipped | Model Router + A/B Testing |
 | **L6** | ✅ Shipped | Observability Bus |
+| **L7** | ✅ Shipped | Agent Handoff Compressor |
+| **L8** | ✅ Shipped | Feedback Loop |
 
 ---
 
-## Phase 2 — Coming next
+## L2 — Semantic Deduplicator
 
-**L2 Semantic Deduplication**
-Detects near-duplicate content blocks across the messages array using embedding similarity. Duplicate assistant turns, repeated tool results, and re-stated context can be collapsed or pointer-replaced before sending to the API.
+> **Status:** Shipped ✦ Phase 2
 
-**L3 Context Compression**
-For very long conversations, L3 will apply a compression step: summarise older message turns into a compact representation, keeping only the most recent N turns verbatim. This is complementary to prompt caching — it reduces the total token budget before breakpoints are placed.
+`SemanticDeduplicator.deduplicateMessages()` processes each message block in two passes:
 
-Both L2 and L3 will expose their own `conduit_*` MCP tools and integrate into the same `wrapRequest` pipeline. The `disable` array on `conduit_wrap_request` will support `"deduplicate"` and `"compress"` flags for opt-out.
+1. **Exact match** — SHA-256 hash (16-char prefix). If a block's hash was seen before, its content is replaced with `[duplicate of: <hash>]`.
+2. **MinHash near-duplicate** — 128-hash MinHash signature over 3-word shingles. If Jaccard similarity ≥ `threshold` (default 0.97), content is replaced with `[near-duplicate (~N% similar) of: <hash>]`. Only applied to blocks longer than 100 characters.
+
+Caches are reset per call — deduplication is stateless across requests.
+
+---
+
+## L3 — Context Compressor
+
+> **Status:** Shipped ✦ Phase 2
+
+`ContextCompressor.compress()` checks the estimated token count of the full messages array. If it exceeds `triggerTokens` (default 8 000) and the array is longer than `keepRecentTurns` (default 4):
+
+1. Splits messages into `toCompress` (all but the last N turns) and `toKeep` (last N turns).
+2. Calls `claude-haiku-4-5` with a strict compression system prompt to produce a bullet-point summary.
+3. Returns `[summaryBlock, ...toKeep]`.
+
+Falls back to a heuristic 150-char line-preview per message when no `ANTHROPIC_API_KEY` is available.
+
+---
+
+## L5 — Model Router + A/B Testing
+
+> **Status:** Shipped ✦ Phase 4
+
+**ModelRouter** (`l5-router.ts`) classifies a prompt by scanning for keyword lists and length heuristics:
+
+- Opus keywords: `architect`, `security audit`, `multi-file`, `refactor entire`, etc.
+- Haiku keywords (aggressive policy only): `format`, `summarize`, `list`, `translate`, etc.
+- Short prompt heuristic (< 200 chars) → Haiku under `aggressive`.
+- Long prompt with code (> 4 000 chars + `` ``` `` or `function`) → Opus.
+
+**ABTesting** (`l5-ab-testing.ts`) stores experiments and assignments in the L6 SQLite database. Assignment is random on first call and sticky thereafter (same `session_id` always gets the same variant).
+
+---
+
+## L7 — Agent Handoff Compressor
+
+> **Status:** Shipped ✦ Phase 3
+
+`AgentHandoffCompressor.compress()` calls `claude-haiku-4-5` with a structured extraction prompt to produce a `HandoffContract` JSON object containing: `task`, `relevant_context`, `expected_output`, `constraints`, `prior_decisions`, and `open_questions`.
+
+It also builds a formatted Markdown `system_prompt` the receiving agent can load directly. Contracts are stored in an in-process `Map` keyed by UUID and retrieved via `fetch(id)`.
+
+Falls back to a heuristic 200-char preview of the last 6 messages when no API key is present.
+
+---
+
+## L8 — Feedback Loop
+
+> **Status:** Shipped ✦ Phase 3
+
+`FeedbackLoop` writes feedback records to the L6 SQLite database (tables `feedback` and `rule_stats`). On every `recordFeedback` call it upserts the rule's win/bad/partial counters. After each upsert it checks: if `evaluations >= 5` and `bad_rate > 40%`, the rule is automatically set to `enabled = 0` with an `auto_disabled_at` timestamp.
+
+`formatRuleReport()` returns a Markdown table consumed directly by `conduit_feedback` and `conduit_rule_stats`.
 
 ---
 

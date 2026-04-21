@@ -94,18 +94,33 @@ await conduit_search_tools({ query: "file" });
 | `conduit_execute_tool` | ▶️ Run a registered tool | When you know the exact tool name and args |
 | `conduit_report` | 📊 Session cost and token report | After a batch of requests, or on a schedule |
 | `conduit_explain` | 💬 Human-readable session summary | Quick status check, end-of-session logging |
+| `conduit_deduplicate` | 🧹 Remove duplicate messages | Before sending long conversations with repeated content |
+| `conduit_compress` | 🗜️ Summarize old conversation turns | When context exceeds your token budget |
+| `conduit_handoff` | 🤝 Create agent handoff contract | When handing off work between agents |
+| `conduit_fetch_handoff` | 📥 Retrieve a handoff contract | On agent startup, when receiving a handoff |
+| `conduit_feedback` | ⭐ Rate a request's quality | After observing a good or bad optimization outcome |
+| `conduit_rule_stats` | 📈 View optimization rule health | To track which rules help or hurt |
+| `conduit_route_model` | 🧭 Pick cheapest capable model | Before every Anthropic API call to minimize cost |
+| `conduit_ab_create` | 🧪 Create an A/B experiment | When testing two instruction variants |
+| `conduit_ab_assign` | 🎲 Assign a session to a variant | At the start of a session in an active experiment |
+| `conduit_ab_list` | 📋 List all experiments | To inspect active and past experiments |
 
 ---
 
 ## Architecture
 
-Three layers ship in Phase 1:
+Eight layers across Phases 1–4:
 
 | Layer | Name | Role |
 |---|---|---|
 | **L1** | Lazy Tool Registry | Tools load on demand — no upfront schema overhead |
+| **L2** | Semantic Deduplicator | Removes exact and near-duplicate message blocks |
+| **L3** | Context Compressor | Summarises old turns via Haiku, keeps recent N verbatim |
 | **L4** | Cache Orchestrator | Injects `cache_control` breakpoints on tools, system, and history |
+| **L5** | Model Router + A/B Testing | Routes prompts to cheapest capable model; runs instruction experiments |
 | **L6** | Observability Bus | SQLite-backed session tracking with cost estimates |
+| **L7** | Agent Handoff Compressor | Distils conversations into structured handoff contracts between agents |
+| **L8** | Feedback Loop | Records quality ratings; auto-disables underperforming rules |
 
 ---
 
