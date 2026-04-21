@@ -3,6 +3,13 @@
 All notable changes to `@patchwindow/claude-conduit` are documented here.
 Dates are ISO 8601 (YYYY-MM-DD).
 
+## 0.2.1 — 2026-04-21
+
+- **Docs:** Fully rewritten README with Quickstart, Configuration, CLI
+  reference, and Troubleshooting sections.
+- **Packaging:** `CHANGELOG.md` and `banner.svg` are now included in the
+  published npm tarball (0.2.0 shipped without them).
+
 ## 0.2.0 — 2026-04-21
 
 - **Smart defaults:** `CONDUIT_DB_PATH` is no longer required. When unset, the

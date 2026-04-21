@@ -1,6 +1,6 @@
 {
   "name": "@patchwindow/claude-conduit",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Token- and agent-optimization MCP server for Claude",
   "type": "module",
   "main": "dist/index.js",
@@ -9,6 +9,8 @@
     "dashboard",
     "docs",
     "README.md",
+    "CHANGELOG.md",
+    "banner.svg",
     "LICENSE"
   ],
   "license": "MIT",
