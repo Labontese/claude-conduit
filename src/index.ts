@@ -3,10 +3,14 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { LazyToolRegistry } from './l1-tool-registry.js';
+import { SemanticDeduplicator } from './l2-deduplication.js';
+import { ContextCompressor } from './l3-compressor.js';
 import { CacheOrchestrator, type AnthropicRequest } from './l4-cache-orchestrator.js';
 import { ObservabilityBus } from './l6-observability.js';
 
 const registry = new LazyToolRegistry();
+const deduplicator = new SemanticDeduplicator();
+const compressor = new ContextCompressor();
 const cacheOrchestrator = new CacheOrchestrator();
 const obs = new ObservabilityBus(process.env['CONDUIT_DB_PATH'] ?? ':memory:');
 
@@ -122,6 +126,42 @@ server.tool(
         },
       ],
     };
+  },
+);
+
+server.tool(
+  'conduit_deduplicate',
+  'Remove duplicate or near-duplicate messages from a conversation. Returns deduplicated messages + stats.',
+  {
+    messages: z.array(z.object({
+      role: z.enum(['user', 'assistant']),
+      content: z.string(),
+    })).describe('Conversation messages to deduplicate'),
+    threshold: z.number().min(0).max(1).optional().describe('Similarity threshold 0-1 (default 0.97)'),
+  },
+  async ({ messages, threshold }) => {
+    const result = deduplicator.deduplicateMessages(messages, threshold ?? 0.97);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  },
+);
+
+server.tool(
+  'conduit_compress',
+  'Compress long conversation history using Haiku summarization. Preserves decisions, code, and key facts.',
+  {
+    messages: z.array(z.object({
+      role: z.enum(['user', 'assistant']),
+      content: z.string(),
+    })).describe('Conversation messages to compress'),
+    trigger_tokens: z.number().optional().describe('Token threshold to trigger compression (default 8000)'),
+    keep_recent_turns: z.number().optional().describe('Number of recent turns to keep verbatim (default 4)'),
+  },
+  async ({ messages, trigger_tokens, keep_recent_turns }) => {
+    const result = await compressor.compress(messages, {
+      triggerTokens: trigger_tokens ?? 8000,
+      keepRecentTurns: keep_recent_turns ?? 4,
+    });
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   },
 );
 
