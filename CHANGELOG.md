@@ -3,6 +3,20 @@
 All notable changes to `@patchwindow/claude-conduit` are documented here.
 Dates are ISO 8601 (YYYY-MM-DD).
 
+## 0.2.2 — 2026-04-21
+
+- **Fix:** Dashboard crashed with `SqliteError: no such table: rule_stats`
+  when `GET /api/rules` was the first query on a DB that no MCP tool had
+  initialised. The dashboard now calls a shared `ensureSchema(db)` at
+  startup that creates every table any layer uses. Per-layer DDL is kept
+  as idempotent defence in depth.
+- **Fix:** API handlers in the dashboard are now wrapped in try/catch.
+  Database errors return `500 { error }` JSON instead of killing the HTTP
+  server.
+- **Internal:** New `src/db-schema.ts` centralises all DDL. Both the MCP
+  server and the dashboard server call `ensureSchema()` after opening the
+  database.
+
 ## 0.2.1 — 2026-04-21
 
 - **Docs:** Fully rewritten README with Quickstart, Configuration, CLI

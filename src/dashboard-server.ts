@@ -5,15 +5,20 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { resolveDbPath } from './db-path.js';
+import { ensureSchema } from './db-schema.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function getDb(dbPath: string): Database.Database {
   mkdirSync(dirname(dbPath), { recursive: true });
   // No readonly flag: better-sqlite3 needs write access to auto-create the
-  // file on first open. Dashboard handlers only issue SELECTs, so this is
-  // safe in practice.
-  return new Database(dbPath);
+  // file on first open. Dashboard handlers only issue SELECTs, but
+  // ensureSchema() needs write access to create any missing tables.
+  const db = new Database(dbPath);
+  // Create every table the dashboard might query, even if no MCP tool has
+  // run yet on this DB file. Idempotent — safe to call repeatedly.
+  ensureSchema(db);
+  return db;
 }
 
 function apiHandler(db: Database.Database, pathname: string): unknown {
@@ -64,14 +69,22 @@ export function startDashboard(dbPath: string, port = 4747): void {
     const url = new URL(req.url ?? '/', `http://localhost:${port}`);
 
     if (url.pathname.startsWith('/api/')) {
-      const data = apiHandler(db, url.pathname);
-      if (!data) {
-        res.writeHead(404);
-        res.end('Not found');
-        return;
+      try {
+        const data = apiHandler(db, url.pathname);
+        if (!data) {
+          res.writeHead(404);
+          res.end('Not found');
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        // Databasfel får aldrig ta ner HTTP-servern. Logga och svara 500.
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`dashboard api error on ${url.pathname}:`, message);
+        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: message }));
       }
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify(data));
       return;
     }
 

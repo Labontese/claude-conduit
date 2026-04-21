@@ -12,12 +12,17 @@ import { FeedbackLoop } from './l8-feedback.js';
 import { ModelRouter } from './l5-router.js';
 import { ABTesting } from './l5-ab-testing.js';
 import { resolveDbPath } from './db-path.js';
+import { ensureSchema } from './db-schema.js';
 
 const registry = new LazyToolRegistry();
 const deduplicator = new SemanticDeduplicator();
 const compressor = new ContextCompressor();
 const cacheOrchestrator = new CacheOrchestrator();
 const obs = new ObservabilityBus(resolveDbPath());
+// Säkerställ att alla tabeller finns direkt när servern startar, så att
+// dashbord-klienter kan öppna samma DB-fil utan att vara beroende av att
+// ett specifikt MCP-tool har körts först. Idempotent.
+ensureSchema(obs.getDb());
 const handoff = new AgentHandoffCompressor();
 const feedback = new FeedbackLoop(obs.getDb());
 const router = new ModelRouter();
