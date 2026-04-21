@@ -8,11 +8,14 @@
 
 ```bash
 npm install -g @patchwindow/claude-conduit
+export ANTHROPIC_API_KEY=sk-ant-...   # required for L3/L7 compression
 conduit init
 # Done — claude-conduit now runs as an MCP server in your project folder
 ```
 
 `conduit init` creates the database, writes `.mcp.json`, and prints any remaining steps. Run `conduit doctor` at any time to check your setup.
+
+If you do not want to use L3 (context compression) or L7 (handoff compression), you can skip the API key entirely. The other six layers (L1, L2, L4, L5, L6, L8) run fully without one. See [Anthropic API key — when is it needed?](#anthropic-api-key--when-is-it-needed) for the per-layer breakdown.
 
 ---
 
@@ -60,7 +63,7 @@ each call.
 |---|---|---|---|
 | `CONDUIT_DB_PATH` | No | `~/.claude-conduit/sessions.db` | SQLite file for session history and metrics |
 | `CONDUIT_AGENT_NAME` | No | `unknown` | Labels the auto-reporting session so the dashboard's `/api/recent` shows which agent made each call. Set it per project or per agent in `.mcp.json`'s `env` block. |
-| `ANTHROPIC_API_KEY` | For L3 only | — | Used by L3 Context Compressor (Haiku) and L7 Handoff distillation |
+| `ANTHROPIC_API_KEY` | For L3 and L7 | — | Used by L3 Context Compressor and L7 Handoff distillation. Both call Haiku directly; without a key they fall back to simple character-based truncation. |
 
 The database file is auto-created on first run. Defaults by platform:
 
@@ -71,6 +74,27 @@ The database file is auto-created on first run. Defaults by platform:
 | Linux | `~/.claude-conduit/sessions.db` |
 
 Set `CONDUIT_DB_PATH` only if you want a custom location (for example, to share one database across multiple projects, or to place it on a different drive).
+
+### Anthropic API key — when is it needed?
+
+claude-conduit is built for developers who already have an `ANTHROPIC_API_KEY`. Two of the eight layers call Haiku directly and therefore require a key; the other six layers work fully without one.
+
+| Layer | Name | API key required? |
+|---|---|---|
+| L1 | Lazy tool loading | No |
+| L2 | Deduplication | No |
+| L3 | Context compression | **Yes** (falls back to simple truncation without) |
+| L4 | Cache orchestration | No |
+| L5 | Model routing | No |
+| L6 | Observability | No |
+| L7 | Handoff compression | **Yes** (falls back to simple truncation without) |
+| L8 | Feedback loop | No |
+
+6 of 8 layers work without an API key.
+
+If you only have a Claude Max/Pro subscription (no API key), L3 and L7 will run in degraded fallback mode — simple character-based truncation instead of semantic compression via Haiku. Functional, but materially less effective. The other six layers work fully.
+
+There is no OAuth passthrough from a Max/Pro subscription to direct API calls, and claude-conduit does not ship one. Anthropic's terms prohibit using Max/Pro credentials to drive programmatic API traffic. Get a key at [console.anthropic.com](https://console.anthropic.com/) if you want the full feature set.
 
 ### Manual `.mcp.json` entry
 
@@ -207,3 +231,22 @@ claude-conduit requires Node.js 20 or newer. Upgrade via `nvm install 20` (macOS
 | [Tools Reference](docs/TOOLS.md) | All six tools — inputs, outputs, and examples |
 | [Architecture](docs/ARCHITECTURE.md) | Layer design, request flow, SQLite schema |
 | [Benchmarks](docs/BENCHMARKS.md) | Design targets, methodology, results placeholder |
+
+---
+
+## FAQ
+
+**Does claude-conduit work with a Claude Max/Pro subscription?**
+Partially. 6 of 8 layers work without an API key. L3 context compression and L7 handoff compression require `ANTHROPIC_API_KEY` because they call Haiku directly. There is no OAuth passthrough from Max/Pro subscriptions — Anthropic's terms prohibit using subscription credentials to drive programmatic API traffic.
+
+**How do I get an API key?**
+Create one at [console.anthropic.com](https://console.anthropic.com/). You pay per token; L3 and L7 use Haiku, which is the cheapest model in the lineup.
+
+**What does "fallback mode" mean for L3 and L7?**
+Simple character-based truncation instead of semantic compression. Old turns are clipped to fit a token budget rather than summarised by Haiku. Still functional, but materially less effective — you lose information that a summary would have preserved.
+
+**Can I use Ollama or another local model?**
+Not currently supported. claude-conduit requires Haiku for L3 and L7 output quality; swapping in a local model would change the compression behaviour in ways we cannot guarantee.
+
+**Which layers run by default?**
+All eight. L3 and L7 detect a missing API key at call time and switch to truncation fallback automatically — no configuration needed. Run `conduit doctor` to confirm which mode each layer will use on your machine.

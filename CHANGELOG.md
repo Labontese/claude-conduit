@@ -3,6 +3,10 @@
 All notable changes to `@patchwindow/claude-conduit` are documented here.
 Dates are ISO 8601 (YYYY-MM-DD).
 
+## Unreleased
+
+- Docs: Clarified API key requirement for L3/L7; added FAQ and per-layer requirement table.
+
 ## 0.3.0 — 2026-04-21
 
 - **Feature:** Auto-reporting — alla `conduit_*`-tools loggar nu automatiskt
