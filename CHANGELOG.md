@@ -3,6 +3,26 @@
 All notable changes to `@patchwindow/claude-conduit` are documented here.
 Dates are ISO 8601 (YYYY-MM-DD).
 
+## 0.3.0 — 2026-04-21
+
+- **Feature:** Auto-reporting — alla `conduit_*`-tools loggar nu automatiskt
+  till L6 via en ny middleware (`src/reporting-middleware.ts`). Dashboarden
+  visar aktivitet utan att `conduit_report` behöver anropas manuellt.
+  Varje anrop registrerar tool-namn, latency, tokens och besparingar som
+  kan extraheras ur resultatet (dedup/compress/handoff/wrap). Anrop som
+  saknar metrics loggas ändå som aktivitet med `model = "n/a"`.
+- **Feature:** `requests`-tabellen har två nya kolumner: `tool_name` och
+  `error`. Existerande DB-filer migreras automatiskt via
+  `ensureSchema()` (ADD COLUMN IF NOT EXISTS-semantik via PRAGMA-check).
+- **Feature:** Servern startar nu en session märkt med `agent_name` från
+  miljövariabeln `CONDUIT_AGENT_NAME` (default `unknown`). Sätt den i
+  `.mcp.json`:s `env`-block för att se agent-namn i dashboardens
+  `/api/recent`.
+- **Fix (Novas fynd):** L2-deduplikering rapporterade `strategy_used: 'exact'`
+  så snart en exakt match sågs, även om MinHash också triggats för andra
+  block. Nu returnerar vi `'mixed'` när båda strategierna användes,
+  annars `'exact'`, `'minhash'` eller `'none'`. Typen utökad.
+
 ## 0.2.2 — 2026-04-21
 
 - **Fix:** Dashboard crashed with `SqliteError: no such table: rule_stats`

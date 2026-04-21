@@ -15,6 +15,8 @@ export interface RequestRecord {
   baselineCostUsd?: number;
   optimizationsApplied?: string[];
   savedTokens?: number;
+  toolName?: string;
+  error?: string;
 }
 
 export interface SessionReport {
@@ -66,7 +68,9 @@ export class ObservabilityBus {
         cost_usd REAL,
         baseline_cost_usd REAL,
         optimizations_applied TEXT,
-        saved_tokens INTEGER
+        saved_tokens INTEGER,
+        tool_name TEXT,
+        error TEXT
       );
       CREATE TABLE IF NOT EXISTS cache_events (
         request_id TEXT NOT NULL REFERENCES requests(id),
@@ -95,8 +99,8 @@ export class ObservabilityBus {
       .prepare(
         `INSERT INTO requests (id, session_id, ts, model, input_tokens, output_tokens,
           cache_read_tokens, cache_write_tokens, latency_ms, cost_usd, baseline_cost_usd,
-          optimizations_applied, saved_tokens)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          optimizations_applied, saved_tokens, tool_name, error)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -112,6 +116,8 @@ export class ObservabilityBus {
         record.baselineCostUsd ?? null,
         record.optimizationsApplied ? JSON.stringify(record.optimizationsApplied) : null,
         record.savedTokens ?? null,
+        record.toolName ?? null,
+        record.error ?? null,
       );
     return id;
   }

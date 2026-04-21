@@ -40,7 +40,9 @@ export function ensureSchema(db: Database.Database): void {
       cost_usd REAL,
       baseline_cost_usd REAL,
       optimizations_applied TEXT,
-      saved_tokens INTEGER
+      saved_tokens INTEGER,
+      tool_name TEXT,
+      error TEXT
     );
     CREATE TABLE IF NOT EXISTS cache_events (
       request_id TEXT NOT NULL REFERENCES requests(id),
@@ -90,4 +92,19 @@ export function ensureSchema(db: Database.Database): void {
       PRIMARY KEY (session_id, experiment_id)
     );
   `);
+
+  // Migration: äldre DB-filer (pre-0.3.0) saknar tool_name / error på
+  // requests-tabellen. SQLite har ingen "ADD COLUMN IF NOT EXISTS", så vi
+  // kollar PRAGMA och lägger till defensivt. Både för persistenta och
+  // in-memory DB:n — idempotent eftersom vi hoppar över om kolumnen finns.
+  const cols = db
+    .prepare(`PRAGMA table_info(requests)`)
+    .all() as Array<{ name: string }>;
+  const names = new Set(cols.map((c) => c.name));
+  if (!names.has('tool_name')) {
+    db.exec(`ALTER TABLE requests ADD COLUMN tool_name TEXT`);
+  }
+  if (!names.has('error')) {
+    db.exec(`ALTER TABLE requests ADD COLUMN error TEXT`);
+  }
 }

@@ -42,6 +42,14 @@ conduit init
 
 conduit does **not** sit in the HTTP path. It transforms request objects in memory and hands them back. Your agent owns the API call.
 
+## Auto-reporting (0.3.0+)
+
+Every `conduit_*` tool automatically logs its call to the L6 observability
+bus — no need to invoke `conduit_report` manually. The dashboard lights up
+from the first tool call, with per-tool latency, token savings, and cost
+estimates. Set `CONDUIT_AGENT_NAME` in `.mcp.json` to label which agent made
+each call.
+
 ---
 
 ## Configuration
@@ -51,6 +59,7 @@ conduit does **not** sit in the HTTP path. It transforms request objects in memo
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `CONDUIT_DB_PATH` | No | `~/.claude-conduit/sessions.db` | SQLite file for session history and metrics |
+| `CONDUIT_AGENT_NAME` | No | `unknown` | Labels the auto-reporting session so the dashboard's `/api/recent` shows which agent made each call. Set it per project or per agent in `.mcp.json`'s `env` block. |
 | `ANTHROPIC_API_KEY` | For L3 only | — | Used by L3 Context Compressor (Haiku) and L7 Handoff distillation |
 
 The database file is auto-created on first run. Defaults by platform:

@@ -6,7 +6,7 @@ export interface DeduplicationResult {
     blocks_total: number;
     blocks_deduplicated: number;
     tokens_saved_estimate: number;
-    strategy_used: 'exact' | 'minhash' | 'none';
+    strategy_used: 'exact' | 'minhash' | 'mixed' | 'none';
   };
 }
 
@@ -74,7 +74,8 @@ export class SemanticDeduplicator {
     const result: ContentBlock[] = [];
     let deduped = 0;
     let tokensSaved = 0;
-    let strategyUsed: 'exact' | 'minhash' | 'none' = 'none';
+    let usedExact = false;
+    let usedMinhash = false;
 
     // Reset caches for each call (stateless per request)
     const exactSeen = new Map<string, string>();
@@ -94,7 +95,7 @@ export class SemanticDeduplicator {
         });
         deduped++;
         tokensSaved += estimateTokens(block.content);
-        strategyUsed = 'exact';
+        usedExact = true;
         continue;
       }
 
@@ -115,7 +116,7 @@ export class SemanticDeduplicator {
             });
             deduped++;
             tokensSaved += estimateTokens(block.content);
-            strategyUsed = strategyUsed === 'exact' ? 'exact' : 'minhash';
+            usedMinhash = true;
             matched = true;
             break;
           }
@@ -131,6 +132,16 @@ export class SemanticDeduplicator {
         result.push({ ...block, hash });
       }
     }
+
+    // Novas fynd (2026-04-21): tidigare kod skrev alltid "exact" så snart
+    // en enda exakt match sågs, även om MinHash också triggats för andra
+    // block. Nu rapporterar vi "mixed" när båda strategierna användes,
+    // annars den som faktiskt löpte — eller "none" om inget dedupliceras.
+    let strategyUsed: DeduplicationResult['stats']['strategy_used'];
+    if (usedExact && usedMinhash) strategyUsed = 'mixed';
+    else if (usedExact) strategyUsed = 'exact';
+    else if (usedMinhash) strategyUsed = 'minhash';
+    else strategyUsed = 'none';
 
     return {
       messages: result,
