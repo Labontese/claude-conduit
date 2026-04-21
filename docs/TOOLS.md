@@ -1,6 +1,6 @@
 # Tools Reference
 
-claude-conduit exposes six MCP tools. This document covers every input parameter, output shape, and a worked example for each tool.
+> All six MCP tools exposed by claude-conduit — inputs, outputs, and worked examples for each.
 
 ---
 
@@ -8,12 +8,12 @@ claude-conduit exposes six MCP tools. This document covers every input parameter
 
 | Tool | Purpose | When to use |
 |---|---|---|
-| `conduit_search_tools` | Find tools by intent | Before calling a tool you are unsure of |
-| `conduit_describe_tool` | Get full schema for one tool | Before executing an unfamiliar tool |
-| `conduit_execute_tool` | Run a registered tool | When you know the exact tool name and args |
-| `conduit_wrap_request` | Inject cache breakpoints into a request | Every Anthropic API call in a long-running agent |
-| `conduit_report` | Session token/cost report | After a batch of requests, or on a schedule |
-| `conduit_explain` | Human-readable session summary | Quick status check, end-of-session logging |
+| `conduit_search_tools` | 🔍 Find tools by intent | Before calling a tool you are unsure of |
+| `conduit_describe_tool` | 📋 Get full schema for one tool | Before executing an unfamiliar tool |
+| `conduit_execute_tool` | ▶️ Run a registered tool | When you know the exact tool name and args |
+| `conduit_wrap_request` | 🔧 Inject cache breakpoints | Every Anthropic API call in a long-running agent |
+| `conduit_report` | 📊 Session token/cost report | After a batch of requests, or on a schedule |
+| `conduit_explain` | 💬 Human-readable session summary | Quick status check, end-of-session logging |
 
 ---
 
@@ -32,6 +32,7 @@ Search registered tools by keyword or intent. Returns **names and descriptions o
 
 JSON array of `{ name: string, description: string }` objects, sorted by relevance score (name match > description match).
 
+<!-- conduit_search_tools — example response -->
 ```json
 [
   {
@@ -47,6 +48,7 @@ JSON array of `{ name: string, description: string }` objects, sorted by relevan
 
 ### Example call
 
+<!-- Search for file-related tools without loading any schemas -->
 ```typescript
 const result = await mcp.call("conduit_search_tools", {
   query: "file",
@@ -54,7 +56,7 @@ const result = await mcp.call("conduit_search_tools", {
 });
 ```
 
-> **Tip:** Use `conduit_search_tools` at the start of a reasoning step to discover relevant tools without paying for schema tokens. Only fetch the schema with `conduit_describe_tool` when you are ready to call the tool.
+> 💡 **Tip:** Use `conduit_search_tools` at the start of a reasoning step to discover relevant tools without paying for schema tokens. Only fetch the schema with `conduit_describe_tool` when you are ready to call the tool.
 
 ---
 
@@ -72,6 +74,7 @@ Returns the full JSON schema for a single registered tool, including its `inputS
 
 On success — JSON object with `name`, `description`, and `inputSchema`:
 
+<!-- conduit_describe_tool — success response -->
 ```json
 {
   "name": "list_files",
@@ -95,6 +98,7 @@ On failure — error response with `isError: true`:
 
 ### Example call
 
+<!-- Fetch full schema before executing a tool -->
 ```typescript
 const schema = await mcp.call("conduit_describe_tool", { name: "list_files" });
 ```
@@ -130,6 +134,7 @@ On failure — error string with `isError: true`:
 
 ### Example call
 
+<!-- Execute a tool with explicit args -->
 ```typescript
 const result = await mcp.call("conduit_execute_tool", {
   name: "list_files",
@@ -137,7 +142,7 @@ const result = await mcp.call("conduit_execute_tool", {
 });
 ```
 
-> **Note:** If `args` is omitted, conduit passes an empty object `{}` to the tool handler.
+> ⚠️ **Note:** If `args` is omitted, conduit passes an empty object `{}` to the tool handler.
 
 ---
 
@@ -156,6 +161,7 @@ The primary optimization tool. Accepts a full Anthropic Messages API request obj
 
 **AnthropicRequest shape:**
 
+<!-- TypeScript type for the request parameter -->
 ```typescript
 {
   model: string;                    // e.g. "claude-sonnet-4-6"
@@ -176,6 +182,7 @@ The primary optimization tool. Accepts a full Anthropic Messages API request obj
 
 ### Output
 
+<!-- CacheMeta shape returned alongside the optimized request -->
 ```typescript
 {
   request: AnthropicRequest;  // optimized request, ready to send to Anthropic
@@ -201,6 +208,7 @@ The primary optimization tool. Accepts a full Anthropic Messages API request obj
 
 ### Example call
 
+<!-- Wrap a full request, selectively disabling one optimization -->
 ```typescript
 const wrapped = await mcp.call("conduit_wrap_request", {
   request: {
@@ -221,13 +229,13 @@ const wrapped = await mcp.call("conduit_wrap_request", {
 // wrapped.meta.cache_breakpoints     → 2
 ```
 
-### Pricing reference (used for saved_usd_estimated)
+### Pricing reference (used for `saved_usd_estimated`)
 
 | Model | Input price per 1M tokens |
 |---|---|
-| claude-opus-4-7 | $15.00 |
-| claude-sonnet-4-6 | $3.00 |
-| claude-haiku-4-5 | $0.80 |
+| `claude-opus-4-7` | $15.00 |
+| `claude-sonnet-4-6` | $3.00 |
+| `claude-haiku-4-5` | $0.80 |
 | (other / unknown) | $3.00 (default) |
 
 ---
@@ -247,7 +255,7 @@ Returns a token usage and cost report for a session.
 
 **Markdown format** (default) — a formatted table:
 
-```markdown
+```
 ## conduit_report — session a3f2c1b0
 
 | Metric            | Value   |
@@ -264,6 +272,7 @@ Returns a token usage and cost report for a session.
 
 **JSON format** — a `SessionReport` object:
 
+<!-- conduit_report — JSON format response -->
 ```json
 {
   "sessionId": "a3f2c1b0-...",
@@ -281,6 +290,7 @@ Returns a token usage and cost report for a session.
 
 ### Example call
 
+<!-- Request a report in both formats -->
 ```typescript
 // Markdown (default)
 const report = await mcp.call("conduit_report", {});
@@ -289,7 +299,7 @@ const report = await mcp.call("conduit_report", {});
 const data = await mcp.call("conduit_report", { format: "json" });
 ```
 
-> **Note:** `conduit_report` reads from the SQLite database. If conduit is running with the default in-memory store (no `CONDUIT_DB_PATH`), data is lost when the server restarts. Set `CONDUIT_DB_PATH` for persistent reporting.
+> ⚠️ **Note:** `conduit_report` reads from the SQLite database. If conduit is running with the default in-memory store (no `CONDUIT_DB_PATH`), data is lost when the server restarts. Set `CONDUIT_DB_PATH` for persistent reporting.
 
 ---
 
@@ -316,7 +326,12 @@ Estimated cost saved: $0.0639
 
 ### Example call
 
+<!-- Plain-text session summary for logging or agent output -->
 ```typescript
 const summary = await mcp.call("conduit_explain", {});
 console.log(summary);
 ```
+
+---
+
+*← [Getting Started](GETTING-STARTED.md) · [Back to README](../README.md) · [Next → Architecture](ARCHITECTURE.md)*

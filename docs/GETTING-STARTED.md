@@ -1,6 +1,6 @@
-# Getting Started with claude-conduit
+# Getting Started
 
-claude-conduit is an MCP server that sits between your Claude agents and the Anthropic API. It automatically injects prompt cache breakpoints, resolves tool schemas on demand, and tracks token usage per session — with no changes to your agent logic required.
+> Everything you need to install claude-conduit, configure it for Claude Code, and run your first optimized request.
 
 ---
 
@@ -35,6 +35,7 @@ Add conduit to your `.mcp.json` file. By default, conduit uses an in-memory SQLi
 
 **In-memory (ephemeral — sessions lost on restart):**
 
+<!-- .mcp.json — in-memory, no persistence -->
 ```json
 {
   "mcpServers": {
@@ -48,6 +49,7 @@ Add conduit to your `.mcp.json` file. By default, conduit uses an in-memory SQLi
 
 **Persistent sessions:**
 
+<!-- .mcp.json — file-backed SQLite -->
 ```json
 {
   "mcpServers": {
@@ -62,7 +64,7 @@ Add conduit to your `.mcp.json` file. By default, conduit uses an in-memory SQLi
 }
 ```
 
-> **Tip:** The directory for `CONDUIT_DB_PATH` is created automatically if it does not exist.
+> 💡 **Tip:** The directory for `CONDUIT_DB_PATH` is created automatically if it does not exist.
 
 After editing `.mcp.json`, restart Claude Code to load the server.
 
@@ -72,6 +74,7 @@ After editing `.mcp.json`, restart Claude Code to load the server.
 
 The core workflow is: wrap your Anthropic request through conduit before sending it. Conduit adds `cache_control` breakpoints to tools, system prompt, and conversation history — then returns both the optimized request and savings metadata.
 
+<!-- Step-by-step: build, wrap, send -->
 ```typescript
 // Step 1: build your request as normal
 const request = {
@@ -114,7 +117,7 @@ console.log(`Estimated savings: $${result.meta.saved_usd_estimated.toFixed(6)}`)
 const response = await anthropic.messages.create(result.request);
 ```
 
-> **Note:** `cache_messages` only fires when the conversation has 4 or more messages. `cache_system` only fires when the system prompt is 1 024 tokens or longer (Anthropic's minimum cacheable block size).
+> ⚠️ **Note:** `cache_messages` only fires when the conversation has 4 or more messages. `cache_system` only fires when the system prompt is 1 024 tokens or longer (Anthropic's minimum cacheable block size).
 
 ---
 
@@ -122,6 +125,7 @@ const response = await anthropic.messages.create(result.request);
 
 After a few requests, call `conduit_report` to see a session summary:
 
+<!-- Check session stats after a batch of requests -->
 ```typescript
 const report = await mcp.call("conduit_report", { format: "markdown" });
 console.log(report);
@@ -146,6 +150,7 @@ Expected output:
 
 For a plain English summary, call `conduit_explain`:
 
+<!-- Human-readable summary for logging or reasoning -->
 ```typescript
 const explain = await mcp.call("conduit_explain", {});
 // "conduit has processed 5 request(s) this session.
@@ -162,13 +167,19 @@ const explain = await mcp.call("conduit_explain", {});
 
 This happens when `CONDUIT_DB_PATH` points to a file from a previous run and the session UUID no longer exists. Either omit `session_id` (conduit uses the current session automatically) or remove the stale `.db` file.
 
+---
+
 ### cache_system is never applied
 
 The system prompt must be **at least 1 024 tokens** for Anthropic to allow caching. For short system prompts conduit logs a note: `"System prompt under 1024 token minimum — cache skipped"`. Check `result.meta.notes` if a breakpoint is missing.
 
+---
+
 ### cache_messages is not applied
 
 The messages array needs **4 or more messages** before conduit places a breakpoint on the final user turn. This prevents wasteful cache writes on single-turn exchanges.
+
+---
 
 ### The MCP server does not appear in Claude Code
 
@@ -176,6 +187,12 @@ The messages array needs **4 or more messages** before conduit places a breakpoi
 2. Check that Node.js is on the `PATH` used by Claude Code.
 3. Restart Claude Code — MCP servers are loaded at startup.
 
+---
+
 ### conduit_wrap_request returns the request unchanged
 
 Check `result.meta.optimizations_applied` — it will be an empty array `[]` if all three optimizations were skipped. Look at `result.meta.notes` for the reason. Common causes: short system prompt, fewer than 4 messages, no tools array.
+
+---
+
+*[Back to README](../README.md) · [Next → Tools Reference](TOOLS.md)*
