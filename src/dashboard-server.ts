@@ -88,6 +88,21 @@ export function startDashboard(dbPath: string, port = 4747): void {
 
 // CLI entry: node dist/dashboard-server.js [db-path] [port]
 const args = process.argv.slice(2);
-const dbPath = args[0] ?? process.env['CONDUIT_DB_PATH'] ?? ':memory:';
+const dbPath = args[0] ?? process.env['CONDUIT_DB_PATH'];
+if (!dbPath) {
+  console.error(
+    'Error: No database path provided.\n' +
+      '\n' +
+      'The dashboard reads from the same SQLite file that conduit writes to,\n' +
+      'so an in-memory database would always be empty.\n' +
+      '\n' +
+      'Provide a path in one of these ways:\n' +
+      '  conduit-dashboard /path/to/conduit.db\n' +
+      '  CONDUIT_DB_PATH=/path/to/conduit.db conduit-dashboard\n' +
+      '\n' +
+      'Use the same path you set for CONDUIT_DB_PATH in your MCP config.',
+  );
+  process.exit(1);
+}
 const port = parseInt(args[1] ?? '4747', 10);
 startDashboard(dbPath, port);

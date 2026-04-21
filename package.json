@@ -1,6 +1,6 @@
 {
   "name": "@patchwindow/claude-conduit",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Token- and agent-optimization MCP server for Claude",
   "type": "module",
   "main": "dist/index.js",
