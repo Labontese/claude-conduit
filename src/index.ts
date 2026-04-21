@@ -9,6 +9,8 @@ import { CacheOrchestrator, type AnthropicRequest } from './l4-cache-orchestrato
 import { ObservabilityBus } from './l6-observability.js';
 import { AgentHandoffCompressor } from './l7-handoff.js';
 import { FeedbackLoop } from './l8-feedback.js';
+import { ModelRouter } from './l5-router.js';
+import { ABTesting } from './l5-ab-testing.js';
 
 const registry = new LazyToolRegistry();
 const deduplicator = new SemanticDeduplicator();
@@ -17,6 +19,8 @@ const cacheOrchestrator = new CacheOrchestrator();
 const obs = new ObservabilityBus(process.env['CONDUIT_DB_PATH'] ?? ':memory:');
 const handoff = new AgentHandoffCompressor();
 const feedback = new FeedbackLoop(obs.getDb());
+const router = new ModelRouter();
+const ab = new ABTesting(obs.getDb());
 
 const server = new McpServer({
   name: 'claude-conduit',
@@ -225,6 +229,62 @@ server.tool(
       ? feedback.formatRuleReport()
       : JSON.stringify(feedback.getAllRuleStats(), null, 2);
     return { content: [{ type: 'text', text }] };
+  },
+);
+
+server.tool(
+  'conduit_route_model',
+  'Suggest the cheapest capable model for a given prompt. Returns model ID, tier, and reasoning.',
+  {
+    prompt: z.string().describe('The prompt or task description to route'),
+    policy: z.enum(['aggressive', 'conservative', 'off']).optional().default('conservative'),
+    force_model: z.string().optional().describe('Override routing with a specific model ID'),
+  },
+  async ({ prompt, policy, force_model }) => {
+    const decision = router.route(prompt, policy, force_model);
+    return { content: [{ type: 'text', text: JSON.stringify(decision, null, 2) }] };
+  },
+);
+
+server.tool(
+  'conduit_ab_create',
+  'Create an A/B experiment with two instruction variants.',
+  {
+    name: z.string().describe('Experiment name (unique)'),
+    variants: z.array(z.object({
+      name: z.string(),
+      instruction: z.string(),
+    })).min(2).describe('At least 2 variants with name and instruction'),
+  },
+  async ({ name, variants }) => {
+    const exp = ab.createExperiment(name, variants);
+    return { content: [{ type: 'text', text: JSON.stringify(exp, null, 2) }] };
+  },
+);
+
+server.tool(
+  'conduit_ab_assign',
+  'Get the assigned instruction variant for this session.',
+  {
+    session_id: z.string().describe('Current session ID'),
+    experiment_name: z.string().describe('Experiment to assign'),
+  },
+  async ({ session_id, experiment_name }) => {
+    const assignment = ab.assign(session_id, experiment_name);
+    if (!assignment) {
+      return { content: [{ type: 'text', text: `Experiment not found: ${experiment_name}` }], isError: true };
+    }
+    return { content: [{ type: 'text', text: JSON.stringify(assignment, null, 2) }] };
+  },
+);
+
+server.tool(
+  'conduit_ab_list',
+  'List all A/B experiments.',
+  {},
+  async () => {
+    const experiments = ab.listExperiments();
+    return { content: [{ type: 'text', text: JSON.stringify(experiments, null, 2) }] };
   },
 );
 
