@@ -8,6 +8,57 @@ Dates are ISO 8601 (YYYY-MM-DD).
 - Docs: Clarified API key requirement for L3/L7; added FAQ and per-layer requirement table.
 - Docs: Added detailed Max/Pro vs API-key comparison section with concrete per-layer behavior, fallback semantics, Haiku cost estimates, and a side-by-side summary table. Added "Pick your path" callout in Quickstart.
 
+## 0.4.0 — 2026-04-21
+
+- **UX: Task-oriented tool names.** Based on Anna's UX audit, ten tools have
+  been renamed to match user mental models. All old names remain as
+  deprecated aliases — no breaking changes.
+
+  | Old name | New canonical name |
+  |---|---|
+  | `conduit_wrap_request` | `conduit_optimize_request` |
+  | `conduit_execute_tool` | `conduit_call_tool` |
+  | `conduit_rule_stats` | `conduit_optimization_stats` |
+  | `conduit_ab_assign` | `conduit_ab_get_variant` |
+  | `conduit_compress` | `conduit_summarize_history` |
+  | `conduit_deduplicate` | `conduit_dedupe` |
+  | `conduit_handoff` | `conduit_handoff_pack` |
+  | `conduit_fetch_handoff` | `conduit_handoff_load` |
+  | `conduit_report` | `conduit_cost_report` |
+  | `conduit_explain` | `conduit_explain_request` |
+
+  Deprecated aliases will be removed in the next major version. Migrate
+  at your convenience.
+
+- **UX: String-friendly inputs.** `conduit_dedupe` and
+  `conduit_summarize_history` now accept `items: string[]` as well as the
+  legacy `{role, content}[]` form. Strings are wrapped internally with
+  `role: "user"`. `conduit_handoff_pack` accepts the same.
+
+- **UX: `conduit_dedupe` return modes.** New `return` parameter —
+  `"clean"` (default) removes duplicates entirely; `"annotated"` keeps
+  them with `[duplicate of: hash]` markers (previous behaviour).
+  Case-insensitive by default (`case_sensitive: false`) — hashes
+  `.toLowerCase().trim()` so `"Hello"` and `"HELLO"` merge.
+
+- **UX: Compression presets.** `conduit_summarize_history` accepts
+  `preset: "aggressive" | "balanced" | "light"`, each setting sensible
+  `trigger_tokens`/`keep_recent_turns`. Explicit overrides still win.
+  Default is `"balanced"` which matches 0.3.0 behaviour.
+
+- **UX: Optional handoff metadata.** `conduit_handoff_pack` treats
+  `from_agent` and `to_agent` as optional — only `task` and `messages`
+  are required.
+
+- **UX: `conduit_optimize_request` minimal form.** Besides the full
+  Anthropic request object, the tool now accepts `{model, messages}`
+  and wraps it to a cache-breakpointed request.
+
+- **Internal:** Tool registration moved out of `src/index.ts` into a
+  pure `src/tool-definitions.ts` module. `buildToolSurface(deps)`
+  returns the full tool list for test inspection without spinning up an
+  MCP transport. No runtime behaviour change.
+
 ## 0.3.0 — 2026-04-21
 
 - **Feature:** Auto-reporting — alla `conduit_*`-tools loggar nu automatiskt
