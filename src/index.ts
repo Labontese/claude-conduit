@@ -11,12 +11,13 @@ import { AgentHandoffCompressor } from './l7-handoff.js';
 import { FeedbackLoop } from './l8-feedback.js';
 import { ModelRouter } from './l5-router.js';
 import { ABTesting } from './l5-ab-testing.js';
+import { resolveDbPath } from './db-path.js';
 
 const registry = new LazyToolRegistry();
 const deduplicator = new SemanticDeduplicator();
 const compressor = new ContextCompressor();
 const cacheOrchestrator = new CacheOrchestrator();
-const obs = new ObservabilityBus(process.env['CONDUIT_DB_PATH'] ?? ':memory:');
+const obs = new ObservabilityBus(resolveDbPath());
 const handoff = new AgentHandoffCompressor();
 const feedback = new FeedbackLoop(obs.getDb());
 const router = new ModelRouter();

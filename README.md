@@ -4,6 +4,18 @@
 
 ---
 
+## Quickstart
+
+```bash
+npm install -g @patchwindow/claude-conduit
+conduit init
+# Done — claude-conduit now runs as an MCP server in your project folder
+```
+
+`conduit init` creates the database, writes `.mcp.json`, and prints any remaining steps. Run `conduit doctor` at any time to check your setup.
+
+---
+
 ## At a glance
 
 | Metric | Target |
@@ -32,30 +44,65 @@ conduit does **not** sit in the HTTP path. It transforms request objects in memo
 
 ---
 
-## Quick install
+## Configuration
 
-```bash
-npm install -g @teamdaniel/claude-conduit
-```
+### Environment variables
 
-Add to your Claude Code config:
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `CONDUIT_DB_PATH` | No | `~/.claude-conduit/sessions.db` | SQLite file for session history and metrics |
+| `ANTHROPIC_API_KEY` | For L3 only | — | Used by L3 Context Compressor (Haiku) and L7 Handoff distillation |
 
-<!-- .mcp.json — persistent sessions -->
+The database file is auto-created on first run. Defaults by platform:
+
+| Platform | Default path |
+|---|---|
+| Windows | `C:\Users\<name>\.claude-conduit\sessions.db` |
+| macOS | `~/.claude-conduit/sessions.db` |
+| Linux | `~/.claude-conduit/sessions.db` |
+
+Set `CONDUIT_DB_PATH` only if you want a custom location (for example, to share one database across multiple projects, or to place it on a different drive).
+
+### Manual `.mcp.json` entry
+
+If you prefer to configure Claude Code by hand rather than running `conduit init`, add this to your project's `.mcp.json`:
+
 ```json
 {
   "mcpServers": {
     "conduit": {
-      "command": "node",
-      "args": ["/path/to/claude-conduit/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@patchwindow/claude-conduit"]
+    }
+  }
+}
+```
+
+To pin a custom database path:
+
+```json
+{
+  "mcpServers": {
+    "conduit": {
+      "command": "npx",
+      "args": ["-y", "@patchwindow/claude-conduit"],
       "env": {
-        "CONDUIT_DB_PATH": "/home/user/.conduit/sessions.db"
+        "CONDUIT_DB_PATH": "/absolute/path/to/sessions.db"
       }
     }
   }
 }
 ```
 
-> 💡 **Tip:** Omit `CONDUIT_DB_PATH` for an in-memory store (data lost on restart). Set it to keep session history across restarts.
+---
+
+## CLI reference
+
+| Command | Purpose |
+|---|---|
+| `conduit init [--yes]` | One-shot setup: create DB, write `.mcp.json`, print next steps. `--yes` accepts all defaults non-interactively. |
+| `conduit doctor` | Diagnose your install: DB reachable? `ANTHROPIC_API_KEY` set? `.mcp.json` valid? Node version ≥ 20? |
+| `conduit-dashboard [db-path] [port]` | Start the read-only metrics dashboard (default port `4747`). `db-path` falls back to `CONDUIT_DB_PATH`, then the platform default. |
 
 ---
 
@@ -121,6 +168,25 @@ Eight layers across Phases 1–4:
 | **L6** | Observability Bus | SQLite-backed session tracking with cost estimates |
 | **L7** | Agent Handoff Compressor | Distils conversations into structured handoff contracts between agents |
 | **L8** | Feedback Loop | Records quality ratings; auto-disables underperforming rules |
+
+---
+
+## Troubleshooting
+
+**The dashboard shows zero sessions.**
+The MCP server and the dashboard must read and write the same SQLite file. Run `conduit doctor` to see which path each process resolves to, then set `CONDUIT_DB_PATH` consistently (or remove it everywhere to use the default).
+
+**`better-sqlite3` fails with `ENOENT` or a native-module error.**
+Run `conduit init`. It ensures the database directory exists and verifies that the native binding loaded correctly on your platform.
+
+**Claude Code does not see the conduit server.**
+Run `conduit doctor` — it validates `.mcp.json` and reports the exact problem. If you wrote `.mcp.json` by hand, confirm the file lives at your project root and that Claude Code has been restarted since the last edit.
+
+**Node version error on startup.**
+claude-conduit requires Node.js 20 or newer. Upgrade via `nvm install 20` (macOS/Linux) or the official installer (Windows), then reinstall globally.
+
+**Custom database path not picked up.**
+`CONDUIT_DB_PATH` must be set in the environment that actually launches the MCP server — for Claude Code, that means the `env` block in `.mcp.json`, not your shell profile.
 
 ---
 
