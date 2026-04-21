@@ -10,65 +10,79 @@ Dates are ISO 8601 (YYYY-MM-DD).
 
 ## 0.4.0 — 2026-04-21
 
-- **UX: Task-oriented tool names.** Based on Anna's UX audit, ten tools have
-  been renamed to match user mental models. All old names remain as
-  deprecated aliases — no breaking changes.
+Task-oriented tool surface. Ten tools renamed so the name describes the
+task a user is trying to do, not the internal layer that owns the
+implementation. Four tools accept friendlier inputs. All old names remain
+as deprecated aliases — signatures stay backwards compatible, with one
+behaviour note on `conduit_deduplicate` below.
 
-  | Old name | New canonical name |
-  |---|---|
-  | `conduit_wrap_request` | `conduit_optimize_request` |
-  | `conduit_execute_tool` | `conduit_call_tool` |
-  | `conduit_rule_stats` | `conduit_optimization_stats` |
-  | `conduit_ab_assign` | `conduit_ab_get_variant` |
-  | `conduit_compress` | `conduit_summarize_history` |
-  | `conduit_deduplicate` | `conduit_dedupe` |
-  | `conduit_handoff` | `conduit_handoff_pack` |
-  | `conduit_fetch_handoff` | `conduit_handoff_load` |
-  | `conduit_report` | `conduit_cost_report` |
-  | `conduit_explain` | `conduit_explain_request` |
+### Renamed tools
 
-  Deprecated aliases will be removed in the next major version. Migrate
-  at your convenience.
+| Old name (still works as alias) | New canonical name |
+|---|---|
+| `conduit_wrap_request` | `conduit_optimize_request` |
+| `conduit_execute_tool` | `conduit_call_tool` |
+| `conduit_rule_stats` | `conduit_optimization_stats` |
+| `conduit_ab_assign` | `conduit_ab_get_variant` |
+| `conduit_compress` | `conduit_summarize_history` |
+| `conduit_deduplicate` | `conduit_dedupe` (behaviour change — see below) |
+| `conduit_handoff` | `conduit_handoff_pack` |
+| `conduit_fetch_handoff` | `conduit_handoff_load` |
+| `conduit_report` | `conduit_cost_report` |
+| `conduit_explain` | `conduit_explain_request` |
 
-  **Behaviour note for `conduit_deduplicate` → `conduit_dedupe`:** unlike
-  the other nine aliases (which are pure renames sharing a handler with
-  their canonical), calling the deprecated `conduit_deduplicate` now
-  routes to the new `conduit_dedupe` handler, which has different
-  defaults: **case-insensitive** (was case-sensitive) and
-  **`return: "clean"`** removes duplicates entirely (was annotated-only).
-  To preserve 0.3.0 semantics, pass `case_sensitive: true` and
-  `return: "annotated"` explicitly. Verified no callers of the old name
-  exist in the conduit repo or Team Daniel; package is one day old on
-  npm. Alias-consistency was chosen over strict behavioural BC.
+Deprecated aliases will be removed in 1.0. Migrate at your convenience.
+Deprecation is surfaced in each alias's description text (MCP has no
+dedicated `deprecated: true` field in the tool schema).
 
-- **UX: String-friendly inputs.** `conduit_dedupe` and
-  `conduit_summarize_history` now accept `items: string[]` as well as the
-  legacy `{role, content}[]` form. Strings are wrapped internally with
-  `role: "user"`. `conduit_handoff_pack` accepts the same.
+### Behaviour change — `conduit_deduplicate` defaults
 
-- **UX: `conduit_dedupe` return modes.** New `return` parameter —
-  `"clean"` (default) removes duplicates entirely; `"annotated"` keeps
-  them with `[duplicate of: hash]` markers (previous behaviour).
-  Case-insensitive by default (`case_sensitive: false`) — hashes
-  `.toLowerCase().trim()` so `"Hello"` and `"HELLO"` merge.
+`conduit_deduplicate` still accepts the 0.3.x input schema, but it now
+shares its handler with `conduit_dedupe` — which means the defaults
+changed:
 
-- **UX: Compression presets.** `conduit_summarize_history` accepts
-  `preset: "aggressive" | "balanced" | "light"`, each setting sensible
-  `trigger_tokens`/`keep_recent_turns`. Explicit overrides still win.
-  Default is `"balanced"` which matches 0.3.0 behaviour.
+- **Case-insensitive matching by default.** `"Hello"` and `"HELLO"` are
+  treated as duplicates. Pass `case_sensitive: true` to restore the
+  0.3.x behaviour.
+- **Duplicates are removed, not annotated.** The output no longer
+  contains `[duplicate of: hash]` markers by default — duplicates are
+  dropped from the list. Pass `return: "annotated"` to restore the 0.3.x
+  behaviour.
 
-- **UX: Optional handoff metadata.** `conduit_handoff_pack` treats
-  `from_agent` and `to_agent` as optional — only `task` and `messages`
-  are required.
+This is a soft breaking change in semantics even though the input schema
+is unchanged. Verified no callers of the old name exist in the conduit
+repo or in internal use, and the package is one day old on npm —
+alias-consistency was chosen over strict behavioural BC. If you relied
+on the old defaults, either pin those two parameters or migrate to
+`conduit_dedupe` so the new behaviour is the obvious one.
 
-- **UX: `conduit_optimize_request` minimal form.** Besides the full
-  Anthropic request object, the tool now accepts `{model, messages}`
-  and wraps it to a cache-breakpointed request.
+### Input improvements
 
-- **Internal:** Tool registration moved out of `src/index.ts` into a
-  pure `src/tool-definitions.ts` module. `buildToolSurface(deps)`
-  returns the full tool list for test inspection without spinning up an
-  MCP transport. No runtime behaviour change.
+- **`conduit_dedupe`.** New `items` parameter accepts `string[]` as well
+  as `{role, content}[]`. Strings are wrapped internally with
+  `role: "user"`. Legacy `messages` still accepted. New parameters:
+  `case_sensitive: boolean` (default `false`) and
+  `return: "clean" | "annotated"` (default `"clean"`).
+- **`conduit_summarize_history`.** `items` accepts `string[]` too. New
+  `preset: "aggressive" | "balanced" | "light"` replaces the magic
+  numbers. Explicit `trigger_tokens` / `keep_recent_turns` still win.
+  `"balanced"` matches 0.3.x defaults.
+- **`conduit_handoff_pack`.** `from_agent` and `to_agent` are now
+  optional metadata — only `task` and `messages` are required. `messages`
+  accepts `string[]`.
+- **`conduit_optimize_request`.** Accepts a minimal `{model, messages}`
+  pair in addition to the full Anthropic Messages request object.
+  Returns a helpful error if neither form is supplied.
+
+### Internal
+
+- Tool registration moved out of `src/index.ts` into a pure
+  `src/tool-definitions.ts` module. `buildToolSurface(deps)` returns the
+  full tool list for test inspection without spinning up an MCP
+  transport. No runtime behaviour change.
+- New `src/input-adapters.ts` centralises `string | {role, content}`
+  normalisation and compress-preset resolution.
+- 204 tests green (68 new), `tsc --strict` clean.
 
 ## 0.3.0 — 2026-04-21
 

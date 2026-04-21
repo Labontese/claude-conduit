@@ -99,8 +99,8 @@ const request = {
   ]
 };
 
-// Step 2: call conduit_wrap_request
-const result = await mcp.call("conduit_wrap_request", { request });
+// Step 2: call conduit_optimize_request
+const result = await mcp.call("conduit_optimize_request", { request });
 
 // result.request  — optimized Anthropic request, ready to send
 // result.meta     — CacheMeta with token savings breakdown
@@ -123,18 +123,18 @@ const response = await anthropic.messages.create(result.request);
 
 ## Verify it is working
 
-After a few requests, call `conduit_report` to see a session summary:
+After a few requests, call `conduit_cost_report` to see a session summary:
 
 <!-- Check session stats after a batch of requests -->
 ```typescript
-const report = await mcp.call("conduit_report", { format: "markdown" });
+const report = await mcp.call("conduit_cost_report", { format: "markdown" });
 console.log(report);
 ```
 
 Expected output:
 
 ```
-## conduit_report — session a3f2c1b0
+## conduit_cost_report — session a3f2c1b0
 
 | Metric            | Value    |
 |-------------------|----------|
@@ -148,11 +148,11 @@ Expected output:
 | Savings           | 72.3%    |
 ```
 
-For a plain English summary, call `conduit_explain`:
+For a plain English summary, call `conduit_explain_request`:
 
 <!-- Human-readable summary for logging or reasoning -->
 ```typescript
-const explain = await mcp.call("conduit_explain", {});
+const explain = await mcp.call("conduit_explain_request", {});
 // "conduit has processed 5 request(s) this session.
 //  Cache hit rate: 73.4%
 //  Estimated token reduction: 72.3%
@@ -163,7 +163,7 @@ const explain = await mcp.call("conduit_explain", {});
 
 ## Troubleshooting
 
-### "Session not found" error from conduit_report
+### "Session not found" error from conduit_cost_report
 
 This happens when `CONDUIT_DB_PATH` points to a file from a previous run and the session UUID no longer exists. Either omit `session_id` (conduit uses the current session automatically) or remove the stale `.db` file.
 
@@ -189,7 +189,7 @@ The messages array needs **4 or more messages** before conduit places a breakpoi
 
 ---
 
-### conduit_wrap_request returns the request unchanged
+### conduit_optimize_request returns the request unchanged
 
 Check `result.meta.optimizations_applied` — it will be an empty array `[]` if all three optimizations were skipped. Look at `result.meta.notes` for the reason. Common causes: short system prompt, fewer than 4 messages, no tools array.
 

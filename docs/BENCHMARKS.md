@@ -28,7 +28,7 @@ These targets assume a warm cache (turn 3+ of a session) and a long system promp
 When benchmarks are run, the procedure will be:
 
 1. **Baseline** — send a set of representative requests to the Anthropic API *without* conduit. Record `input_tokens`, `output_tokens`, and `cost_usd` per request.
-2. **Optimized** — send the same requests through `conduit_wrap_request`. Record the same fields plus `cache_read_input_tokens` and `cache_write_input_tokens` from the Anthropic response.
+2. **Optimized** — send the same requests through `conduit_optimize_request`. Record the same fields plus `cache_read_input_tokens` and `cache_write_input_tokens` from the Anthropic response.
 3. **Compare** — compute token reduction and cost reduction relative to baseline.
 4. **Warm cache** — repeat each test scenario for at least 5 turns to allow cache hit rates to stabilize. The first turn of a new tool set or system prompt will always be a cache miss (write). Hit rates are meaningful only from turn 2 onward.
 
