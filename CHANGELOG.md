@@ -6,6 +6,7 @@ Dates are ISO 8601 (YYYY-MM-DD).
 ## Unreleased
 
 - Docs: Clarified API key requirement for L3/L7; added FAQ and per-layer requirement table.
+- Docs: Added detailed Max/Pro vs API-key comparison section with concrete per-layer behavior, fallback semantics, Haiku cost estimates, and a side-by-side summary table. Added "Pick your path" callout in Quickstart.
 
 ## 0.3.0 — 2026-04-21
 

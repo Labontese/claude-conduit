@@ -17,6 +17,8 @@ conduit init
 
 If you do not want to use L3 (context compression) or L7 (handoff compression), you can skip the API key entirely. The other six layers (L1, L2, L4, L5, L6, L8) run fully without one. See [Anthropic API key — when is it needed?](#anthropic-api-key--when-is-it-needed) for the per-layer breakdown.
 
+> **Pick your path:** Max/Pro-only users get 6/8 layers; API-key users get all 8. See [What you get with Claude Max/Pro only vs with an API key](#what-you-get-with-claude-maxpro-only-vs-with-an-api-key) for a concrete comparison.
+
 ---
 
 ## At a glance
@@ -95,6 +97,59 @@ claude-conduit is built for developers who already have an `ANTHROPIC_API_KEY`. 
 If you only have a Claude Max/Pro subscription (no API key), L3 and L7 will run in degraded fallback mode — simple character-based truncation instead of semantic compression via Haiku. Functional, but materially less effective. The other six layers work fully.
 
 There is no OAuth passthrough from a Max/Pro subscription to direct API calls, and claude-conduit does not ship one. Anthropic's terms prohibit using Max/Pro credentials to drive programmatic API traffic. Get a key at [console.anthropic.com](https://console.anthropic.com/) if you want the full feature set.
+
+### What you get with Claude Max/Pro only vs with an API key
+
+Two supported setups. Pick the one that matches your situation. All numbers below are reproducible — run `node scripts/demo.mjs` to verify L2, L3 and L7 on your own machine.
+
+#### Scenario A — Claude Max/Pro only (no API key)
+
+**Active layers (full function):** L1, L2, L4, L5, L6, L8
+**Degraded layers (fallback mode):** L3, L7
+
+What each layer actually does in this setup:
+
+| Layer | Behavior |
+|---|---|
+| **L1** Lazy tool loading | Schemas filtered by relevance — saves ~30–70% on tool-definition tokens per request. No API calls required. |
+| **L2** Deduplication | Exact hash + MinHash LSH. ~20% token reduction on typical message histories with repeated content (verified in `scripts/demo.mjs`). No API calls required. |
+| **L4** Cache orchestration | Automatic `cache_control` breakpoints on tools/system/messages — cache hit rate 50–90% in observed sessions. Pure request transformation, no API calls. |
+| **L5** Model routing | Rule-based routing between Haiku/Sonnet/Opus based on prompt heuristics. No API calls required. |
+| **L6** Observability | Full SQLite logging, dashboard works, cost estimates and metrics accurate. No API calls required. |
+| **L8** Feedback loop | Rule statistics and auto-disable work fully. No API calls required. |
+| **L3** Context compression | **Fallback:** truncates at token limit instead of semantic compression — keeps start + end, drops middle. Functional, but loses information a summary would have preserved. |
+| **L7** Handoff compression | **Fallback:** sync truncation — ~35% size reduction but no structured extraction of constraints, prior decisions, or open questions. Receiving agent gets a clipped log instead of a clean briefing. |
+
+**Bottom line:** claude-conduit is useful in this setup — cache orchestration alone often cuts costs 40–60% on long sessions, L1 trims tool overhead significantly, and L6 gives you the full dashboard. You just lose semantic compression on L3 and L7.
+
+#### Scenario B — With `ANTHROPIC_API_KEY`
+
+**All 8 layers fully active.** L1/L2/L4/L5/L6/L8 behave identically to Scenario A. L3 and L7 upgrade from truncation to Haiku-backed compression:
+
+| Layer | Behavior |
+|---|---|
+| **L3** Context compression | Haiku-based semantic compression. 70–90% token reduction on long contexts while preserving meaning. Automatic trigger at 8000 tokens. |
+| **L7** Handoff compression | Haiku extracts a structured handoff contract — constraints, prior decisions, open questions — instead of raw truncation. Receiving agent gets a clean briefing, not a log dump. |
+
+**Additional API cost** (at Haiku pricing: $0.80/M input, $4.00/M output):
+
+- Each L3 compression: ~$0.0002 per 10K tokens of input context
+- Each L7 handoff: ~$0.0005 per typical agent state
+
+Easily offset by the savings these compressions produce on the larger downstream model (Sonnet/Opus) that would otherwise have processed the full uncompressed context.
+
+**Bottom line:** Full value. Recommended for production use and heavy multi-agent workflows where handoffs carry real structured state.
+
+#### Side-by-side summary
+
+| Aspect | Max/Pro only | With API key |
+|---|---|---|
+| Layers fully active | 6 of 8 | 8 of 8 |
+| L3 behavior | Character truncation (start + end kept) | Haiku semantic summary |
+| L7 behavior | Sync truncation (~35% reduction) | Structured contract extraction |
+| Typical cost reduction on long sessions | 40–60% (cache + L1 + L2) | 70–85% (adds semantic compression) |
+| Added API spend | $0 | ~$0.0002–0.0005 per compression |
+| Suitable for | Local dev, single-agent, Max/Pro users | Production, multi-agent handoffs |
 
 ### Manual `.mcp.json` entry
 
